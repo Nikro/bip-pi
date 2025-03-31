@@ -46,10 +46,21 @@ xterm &
 conky &
 EOF
 
-# Optional: screen rotation
-if [ "$SCREEN_ROTATION" = "90" ]; then
-  echo "Adding screen rotation to autostart..."
-  echo "(sleep 3 && xrandr --output \$(xrandr | grep ' connected' | cut -d' ' -f1) --rotate left) &" >> ~/.config/openbox/autostart
+# Configure screen rotation via X11 instead of runtime xrandr
+if [ "$SCREEN_ROTATION" -eq 90 ]; then 
+  echo "==> Configuring screen rotation via X11 (90 degrees)..."
+  sudo mkdir -p /etc/X11/xorg.conf.d/
+  sudo tee /etc/X11/xorg.conf.d/90-monitor.conf > /dev/null <<EOF
+Section "Monitor"
+    Identifier "HDMI-1"
+    Option "Rotate" "left"
+EndSection
+
+Section "Screen"
+    Identifier "Screen0"
+    Monitor "HDMI-1"
+EndSection
+EOF
 fi
 
 # .bash_profile auto-start
