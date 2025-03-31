@@ -14,44 +14,21 @@ SCREEN_ROTATION=90
 echo "==> Setting up for user: $USERNAME (home: $HOME_DIR)"
 
 ###############################################################################
-# 1. SYSTEM DEPENDENCIES - Installing one by one with error handling
+# 1. SYSTEM DEPENDENCIES - Using a single apt command
 ###############################################################################
-echo "==> Installing system dependencies..."
+echo "==> Installing all system dependencies..."
 sudo apt update || echo "Warning: apt update failed, continuing anyway"
 
-# Function to install packages with error handling
-install_pkg() {
-  sudo apt install -y --no-install-recommends $1 || echo "Warning: Failed to install $1, continuing anyway"
-}
-
-# Install core packages one by one
-echo "==> Installing Python and development tools..."
-install_pkg "python3-pip"
-install_pkg "python3-dev"
-install_pkg "git"
-
-echo "==> Installing GUI components..."
-install_pkg "xserver-xorg" 
-install_pkg "xinit"
-install_pkg "openbox"
-install_pkg "tint2"
-install_pkg "xterm"
-install_pkg "feh"
-install_pkg "epiphany-browser"
-install_pkg "conky"
-
-# Install Python dependencies directly from apt (the Debian way)
-echo "==> Installing Python dependencies using apt..."
-install_pkg "python3-setuptools"
-install_pkg "python3-pygame"  # From apt instead of pip
-install_pkg "python3-emoji"   # From apt instead of pip
-
-# Try to install minimal ROS2 packages if available
-echo "==> Installing minimal ROS2 packages..."
-install_pkg "python3-rclpy"
+# Single apt command for all packages
+echo "==> Installing all required packages..."
+sudo apt install -y --no-install-recommends \
+  python3-pip python3-dev git \
+  xserver-xorg xinit openbox tint2 xterm feh epiphany-browser conky \
+  python3-setuptools python3-pygame python3-emoji python3-rclpy \
+  || echo "Warning: Some packages may have failed to install, continuing anyway"
 
 ###############################################################################
-# 3. PROJECT SETUP
+# 2. PROJECT SETUP
 ###############################################################################
 echo "==> Setting up robotics platform workspace..."
 
@@ -102,7 +79,7 @@ EOF
 fi
 
 ###############################################################################
-# 4. GUI AND DISPLAY SETUP - Keep this section intact
+# 3. GUI AND DISPLAY SETUP
 ###############################################################################
 
 # Auto-login setup
@@ -204,27 +181,22 @@ EOF
 chmod 644 "${HOME_DIR}/.conkyrc" || echo "Warning: Unable to set permissions on .conkyrc"
 
 ###############################################################################
-# 5. CLEANUP UNNECESSARY PROJECT FILES
+# 4. PACKAGE SETUP
 ###############################################################################
-echo "==> Cleaning up redundant files..."
-
-# Update setup.py with direct dependencies instead of relying on rosdep
-sed -i 's/install_requires=\[.*\]/install_requires=["setuptools", "rclpy", "pygame", "emoji"]/' setup.py || echo "Warning: Failed to update setup.py"
+echo "==> Configuring package files..."
 
 # Simplify pyproject.toml
 cat > pyproject.toml << EOF
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
-
-[tool.pytest.ini_options]
-testpaths = ["test"]
-python_files = "test_*.py"
 EOF
 
-# Try to do a pip install of the current package
+# Try to do a pip install of the current package only if needed
 echo "==> Installing the robotics platform package..."
-pip3 install --user -e . || echo "Warning: Failed to install package, continuing anyway"
+if ! python3 -c "import robotics_platform" &>/dev/null; then
+  pip3 install --user -e . || echo "Warning: Failed to install package, continuing anyway"
+fi
 
 echo "==> Setup complete! To start the robotics platform:"
 echo "  1. Run: source ${WORKSPACE_DIR}/setup.bash"
