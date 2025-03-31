@@ -1,0 +1,35 @@
+[tool.poetry]
+name = "robotics-platform"
+version = "0.1.0"
+description = "A ROS2-based robotics platform optimized for Raspberry Pi"
+authors = ["Bip-Pi Team <your.email@example.com>"]
+license = "MIT"
+packages = [
+    { include = "robotics_platform" },
+    { include = "ui" },
+    { include = "core" },
+    { include = "ros2_nodes" },
+    { include = "launch" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+pygame = "^2.1.0"
+emoji = "^2.2.0"
+setuptools = "^65.0.0"
+
+# Note: ROS2 dependencies are handled by the system ROS2 installation
+
+[tool.colcon-poetry-ros.dependencies]
+rclpy = "*"
+launch = "*"
+launch_ros = "*"
+std_msgs = "*"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+robot_state_node = "ros2_nodes.robot_state_node:main"
+ui_interface_node = "ros2_nodes.ui_interface_node:main"

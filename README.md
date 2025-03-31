@@ -1,22 +1,42 @@
-# BIP-PI
+# Bip-Pi: ROS2 Robotics Platform
 
-A lightweight AI desktop environment for Orange Pi PC v1.2.
-
-## Features
-- Minimal GUI with Openbox and tint2
-- Auto-login and X11 startup on boot
-- Conky system monitor displaying CPU temperature
-- Preconfigured for vertical (90° rotated) display
+A ROS2-based robotics platform optimized for Raspberry Pi with a Pygame UI.
 
 ## Installation
+
+Setup is simple with our all-in-one installation script:
+
 ```bash
+git clone <this-repo-url>
+cd bip-pi
 chmod +x install.sh
 ./install.sh
 ```
 
-## Components
-- Openbox: Lightweight window manager
-- Tint2: Simple panel/taskbar
-- Epiphany: Web browser
-- Conky: System monitor
-- Auto-rotation for vertical display
+This will:
+1. Set up a lightweight GUI environment
+2. Install ROS2 Humble
+3. Configure your ROS2 workspace
+4. Build the robotics platform
+
+## Using the Platform
+
+After installation, you can run the platform with:
+
+```bash
+# The environment is already set up by the installer
+ros2 run robotics_platform main
+```
+
+To rebuild after making changes:
+
+```bash
+./colcon_build.sh
+```
+
+## Project Structure
+
+- core: Core robotics loop
+- ui: Pygame-based user interface
+- ros2_nodes: ROS2 nodes for system functionality
+- launch: ROS2 launch files

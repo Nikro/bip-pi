@@ -9,6 +9,7 @@ USERNAME=$(whoami)  # Get current username
 AUTOLOGIN="yes"     # yes/no — auto-login to TTY1
 SCREEN_ROTATION=90  # 0 = no rotation, 90 = vertical mode
 HOME_DIR=$(eval echo ~${USERNAME})  # Get correct home directory
+ROS2_DISTRO="humble"  # ROS2 distribution to install
 
 echo "==> Setting up for user: $USERNAME (home: $HOME_DIR)"
 
@@ -109,4 +110,64 @@ RAM: \$mem / \$memmax
 EOF
 chown ${USERNAME}:${USERNAME} "${HOME_DIR}/.conkyrc"
 
-echo "==> Done. Reboot and enjoy your minimal GUI setup!"
+###############################################################################
+# ROS2 INSTALLATION AND SETUP
+###############################################################################
+
+echo "==> Setting up ROS2 ${ROS2_DISTRO}..."
+
+# Add ROS2 apt repository and keys
+echo "==> Adding ROS2 repository and keys..."
+sudo apt install -y curl gnupg lsb-release
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+sudo apt update
+
+# Install ROS2 base, build tools, and key Python dependencies
+echo "==> Installing ROS2 ${ROS2_DISTRO} and dependencies..."
+sudo apt install -y ros-${ROS2_DISTRO}-ros-base python3-colcon-common-extensions python3-rosdep python3-vcstool
+
+# Initialize rosdep if not already done
+if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
+  echo "==> Initializing rosdep..."
+  sudo rosdep init
+fi
+rosdep update
+
+# Set up ROS2 workspace
+echo "==> Setting up ROS2 workspace..."
+WORKSPACE_DIR="${HOME_DIR}/ros2_ws"
+mkdir -p ${WORKSPACE_DIR}/src
+
+# Link current repository to workspace
+echo "==> Linking repository to ROS2 workspace..."
+ln -sf "$(pwd)" "${WORKSPACE_DIR}/src/robotics_platform"
+
+# Install dependencies using rosdep
+echo "==> Installing ROS2 dependencies with rosdep..."
+cd ${WORKSPACE_DIR}
+rosdep install --from-paths src --ignore-src -y
+
+# Build the workspace
+echo "==> Building ROS2 workspace with colcon..."
+colcon build --symlink-install
+
+# Add ROS2 environment setup to .bashrc
+echo "==> Adding ROS2 environment setup to .bashrc..."
+if ! grep -q "source /opt/ros/${ROS2_DISTRO}/setup.bash" "${HOME_DIR}/.bashrc"; then
+  echo "" >> "${HOME_DIR}/.bashrc"
+  echo "# ROS2 environment setup" >> "${HOME_DIR}/.bashrc"
+  echo "source /opt/ros/${ROS2_DISTRO}/setup.bash" >> "${HOME_DIR}/.bashrc"
+  echo "source ${WORKSPACE_DIR}/install/setup.bash" >> "${HOME_DIR}/.bashrc"
+fi
+
+# Install Python dependencies with pip
+echo "==> Installing required Python packages..."
+pip install -U pygame emoji
+
+# Make the colcon_build.sh script executable
+chmod +x "$(pwd)/colcon_build.sh"
+
+echo "==> ROS2 ${ROS2_DISTRO} setup complete!"
+echo "==> Run your robotics platform with: ros2 run robotics_platform main"
+echo "==> Done. Reboot and enjoy your minimal GUI with ROS2 setup!"
