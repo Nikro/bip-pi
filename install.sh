@@ -1,69 +1,94 @@
 #!/bin/bash
 ###############################################################################
-# install_ai_desktop.sh
-#
-# This script sets up only the essential components needed for AI development
-# on an Orange Pi with LightDM already installed:
-#
-#   STEP 0: Adjusts APT sources to use the official Debian Buster repositories
-#           for armhf devices.
-#   STEP 1: Updates and upgrades system packages.
-#   STEP 2: Installs only the required packages (Git, Python3).
-#   STEP 3: Configures screen rotation for vertical display.
-#
-# Configuration Variables:
-SCREEN_ROTATION=90      # 0 = no rotation; 90 = rotate 90° (for vertical display)
-DEBIAN_VERSION="buster" # Debian release name
+# Setup Script for Minimal GUI on Armbian-based Ubuntu Noble (ARMHF)
+# No LightDM or display manager; autologin to TTY1 with Openbox + X11
 ###############################################################################
 
-# ---------------------------
-# STEP 0: Update APT Mirrors for armhf Devices
-# ---------------------------
-echo "==> Updating APT sources to use the official Debian Buster repositories for armhf..."
-# Back up the current sources.list file
-sudo cp /etc/apt/sources.list /etc/apt/sources.list.backup
+# CONFIG
+USERNAME="orangepi"
+AUTOLOGIN="yes"            # yes/no — auto-login to TTY1
+SCREEN_ROTATION=90         # 0 = no rotation, 90 = vertical mode
 
-# Overwrite with Debian Buster repositories for armhf devices
-sudo bash -c "cat > /etc/apt/sources.list <<EOF
-deb [arch=armhf] http://deb.debian.org/debian ${DEBIAN_VERSION} main contrib non-free
-deb [arch=armhf] http://deb.debian.org/debian ${DEBIAN_VERSION}-updates main contrib non-free
-deb [arch=armhf] http://security.debian.org/debian-security ${DEBIAN_VERSION}/updates main contrib non-free
-EOF"
+echo "==> Updating system..."
+sudo apt update && sudo apt upgrade -y
 
-# ---------------------------
-# STEP 1: Update and Upgrade System Packages
-# ---------------------------
-echo "==> Updating system packages..."
-sudo apt-get update
-sudo apt-get upgrade -y
+echo "==> Installing lightweight GUI stack..."
+sudo apt install -y --no-install-recommends \
+  xserver-xorg xinit openbox tint2 xterm feh \
+  epiphany-browser git python3 python3-pip conky
 
-# ---------------------------
-# STEP 2: Install Required Packages
-# ---------------------------
-echo "==> Installing only essential packages..."
-sudo apt-get install -y --no-install-recommends \
-    git python3 python3-pip xrandr
-
-# ---------------------------
-# STEP 3: Configure Screen Rotation
-# ---------------------------
-if [ "$SCREEN_ROTATION" -eq 90 ]; then
-    echo "==> Configuring screen rotation (90 degrees)..."
-    
-    # Create xorg configuration for rotation
-    sudo mkdir -p /etc/X11/xorg.conf.d/
-    sudo tee /etc/X11/xorg.conf.d/90-monitor.conf > /dev/null <<EOF
-Section "Monitor"
-    Identifier "HDMI-1"
-    Option "Rotate" "left"
-EndSection
+# Auto-login setup
+if [ "$AUTOLOGIN" = "yes" ]; then
+  echo "==> Enabling auto-login for $USERNAME on tty1..."
+  sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
+  sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf > /dev/null <<EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin $USERNAME --noclear %I 38400 linux
 EOF
-
-    # Make sure the system applies rotation on next boot
-    echo "Screen rotation configured. It will take effect after reboot."
+  sudo systemctl daemon-reexec
+  sudo systemctl daemon-reload
+  sudo systemctl restart getty@tty1.service
 fi
 
-# ---------------------------
-# DONE
-# ---------------------------
-echo "==> Setup complete. Please reboot your system to apply all changes."
+# .xinitrc
+echo "==> Creating ~/.xinitrc for Openbox..."
+cat <<EOF > ~/.xinitrc
+exec openbox-session
+EOF
+
+# Openbox autostart
+echo "==> Creating Openbox autostart file..."
+mkdir -p ~/.config/openbox
+cat <<EOF > ~/.config/openbox/autostart
+tint2 &
+xterm &
+conky &
+EOF
+
+# Optional: screen rotation
+if [ "$SCREEN_ROTATION" = "90" ]; then
+  echo "Adding screen rotation to autostart..."
+  echo "(sleep 3 && xrandr --output \$(xrandr | grep ' connected' | cut -d' ' -f1) --rotate left) &" >> ~/.config/openbox/autostart
+fi
+
+# .bash_profile auto-start
+echo "==> Enabling automatic startx on tty1..."
+if ! grep -q "startx" ~/.bash_profile; then
+  cat <<EOF >> ~/.bash_profile
+
+# Start X only on tty1
+if [[ -z "\$DISPLAY" ]] && [[ \$(tty) == /dev/tty1 ]]; then
+  exec startx
+fi
+EOF
+fi
+
+# Set default browser
+echo "==> Setting Epiphany as x-www-browser..."
+sudo update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/epiphany-browser 100
+sudo update-alternatives --set x-www-browser /usr/bin/epiphany-browser
+
+# Conky config with CPU temp
+echo "==> Creating Conky config for temperature display..."
+cat <<EOF > ~/.conkyrc
+conky.config = {
+    alignment = 'top_right',
+    background = true,
+    update_interval = 3.0,
+    double_buffer = true,
+    own_window = true,
+    own_window_type = 'desktop',
+    own_window_transparent = true,
+    font = 'DejaVu Sans Mono:size=10',
+};
+
+conky.text = [[
+Time: \${time %H:%M:%S}
+CPU Temp: \${execi 3 awk '{ printf("%.1f°C", \$1 / 1000) }' /sys/class/thermal/thermal_zone0/temp}
+CPU Usage: \${cpu}%
+RAM: \$mem / \$memmax
+]];
+EOF
+
+echo "==> Done. Reboot and enjoy your minimal GUI setup!"
