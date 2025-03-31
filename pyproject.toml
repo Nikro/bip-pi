@@ -17,5 +17,13 @@ setuptools = "^65.0.0"
 # Note: ROS2 dependencies are handled by the system ROS2 installation or our venv
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.yapf]
+based_on_style = "pep8"
+column_limit = 100
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+python_files = "test_*.py"

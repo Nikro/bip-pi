@@ -1,6 +1,6 @@
 #!/bin/bash
 ###############################################################################
-# Setup Script for ROS2 on Debian Bookworm (ARM) with Minimal GUI
+# Setup Script for Bip-Pi ROS2 Robotics Platform
 ###############################################################################
 
 set -e  # Exit on error
@@ -9,65 +9,91 @@ set -e  # Exit on error
 USERNAME=$(whoami)
 HOME_DIR=$(eval echo ~${USERNAME})
 WORKSPACE_DIR="${HOME_DIR}/ros2_ws"
-VENV_DIR="${HOME_DIR}/.venv/bip-pi"
 SCREEN_ROTATION=90
 
 echo "==> Setting up for user: $USERNAME (home: $HOME_DIR)"
 
-# Ensure we have required packages for the installation
-echo "==> Installing required system packages..."
+###############################################################################
+# 1. SYSTEM DEPENDENCIES - Everything needed by the OS/display
+###############################################################################
+echo "==> Installing system dependencies..."
 sudo apt update
 sudo apt install -y --no-install-recommends \
-  curl gnupg lsb-release python3-pip python3-venv python3-full \
-  git make cmake g++ xserver-xorg xinit openbox tint2 xterm feh \
-  epiphany-browser conky 
+  # Base build tools
+  build-essential curl gnupg lsb-release \
+  # GUI environment
+  xserver-xorg xinit openbox tint2 xterm feh epiphany-browser conky \
+  # Python core
+  python3-dev python3-pip \
+  # Pygame system dependencies
+  python3-pygame libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev \
+  libsdl2-ttf-dev libfreetype-dev libportmidi-dev \
+  # Tools
+  git
 
-# Set up a Python virtual environment
-echo "==> Creating Python virtual environment..."
-python3 -m venv ${VENV_DIR}
-echo "Created Python venv at: ${VENV_DIR}"
-source ${VENV_DIR}/bin/activate
-
-# Install Python packages in the virtual env
-echo "==> Installing Python packages in virtual environment..."
-pip install --upgrade pip
-pip install pygame emoji setuptools build colcon-common-extensions
-
-# Set up ROS2 - using binary distribution if possible
+###############################################################################
+# 2. ROS2 SETUP - Use ROS's own tools for dependency management
+###############################################################################
 echo "==> Setting up ROS2..."
 
-# Create workspace
-echo "==> Creating ROS2 workspace..."
-mkdir -p ${WORKSPACE_DIR}/src
+# Try to add ROS2 repositories (works on Ubuntu)
+if grep -q "Ubuntu\|Debian" /etc/os-release; then
+  DISTRO=$(grep -oP '(?<=VERSION_CODENAME=).+' /etc/os-release)
+  echo "==> Detected distribution: $DISTRO, adding ROS2 repositories..."
+  
+  sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    -o /usr/share/keyrings/ros-archive-keyring.gpg
+    
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+    http://packages.ros.org/ros2/ubuntu $DISTRO main" | \
+    sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+    
+  sudo apt update
+  
+  # Install ROS2 and essential tools
+  sudo apt install -y ros-humble-ros-base python3-rosdep python3-colcon-common-extensions
+  
+  # Initialize rosdep if needed
+  if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
+    sudo rosdep init
+  fi
+  rosdep update
+else
+  # Fallback for systems without ROS2 packages
+  echo "==> ROS2 packages not available. Installing minimal ROS2 Python libraries..."
+  pip3 install --user rclpy
+fi
 
-# Link our repository to the workspace
-echo "==> Linking repository to workspace..."
+###############################################################################
+# 3. PROJECT SETUP - Set up our robotics platform
+###############################################################################
+echo "==> Setting up robotics platform workspace..."
+
+# Create workspace
+mkdir -p ${WORKSPACE_DIR}/src
 ln -sf "$(pwd)" "${WORKSPACE_DIR}/src/robotics_platform"
 
-# Add environment setup to .bashrc
-echo "==> Adding environment setup to .bashrc..."
-if ! grep -q "source ${VENV_DIR}/bin/activate" "${HOME_DIR}/.bashrc"; then
-  cat <<EOF >> "${HOME_DIR}/.bashrc"
-
-# Robotics platform environment
-if [ -f "${VENV_DIR}/bin/activate" ]; then
-    source "${VENV_DIR}/bin/activate"
-fi
-
-# ROS2 workspace
-if [ -f "${WORKSPACE_DIR}/install/setup.bash" ]; then
-    source "${WORKSPACE_DIR}/install/setup.bash"
-fi
-EOF
-fi
-
-# Now build our robotics platform - locally
-echo "==> Building robotics platform..."
+# Install dependencies using rosdep if available
 cd ${WORKSPACE_DIR}
-colcon build --symlink-install --packages-select robotics_platform
+if command -v rosdep &> /dev/null; then
+  echo "==> Installing project dependencies with rosdep..."
+  rosdep install --from-paths src --ignore-src -y
+else
+  echo "==> Installing project dependencies with pip..."
+  pip3 install --user pygame emoji
+fi
 
-# Configure GUI/screen rotation
-echo "==> Setting up GUI configuration..."
+# Build the workspace
+if command -v colcon &> /dev/null; then
+  echo "==> Building with colcon..."
+  colcon build --symlink-install
+else
+  echo "==> Colcon not available, skipping build..."
+fi
+
+###############################################################################
+# 4. ENVIRONMENT SETUP - Configure remaining GUI and startup
+###############################################################################
 
 # Auto-login setup
 echo "==> Enabling auto-login for $USERNAME on tty1..."
@@ -95,8 +121,8 @@ echo "==> Creating Openbox autostart file..."
 mkdir -p "${HOME_DIR}/.config/openbox"
 cat <<EOF > "${HOME_DIR}/.config/openbox/autostart"
 # Activate our environment and start the robot UI
-if [ -f "${VENV_DIR}/bin/activate" ]; then
-    source "${VENV_DIR}/bin/activate"
+if [ -f "${WORKSPACE_DIR}/install/setup.bash" ]; then
+    source "${WORKSPACE_DIR}/install/setup.bash"
     xterm -e "ros2 launch robotics_platform robot.py" &
 fi
 
@@ -165,55 +191,7 @@ RAM: \$mem / \$memmax
 EOF
 chmod 644 "${HOME_DIR}/.conkyrc"
 
-# Update colcon_build.sh to use our virtual environment
-echo "==> Updating colcon_build.sh..."
-cat > "$(pwd)/colcon_build.sh" << 'EOF'
-#!/bin/bash
-
-set -e  # Exit on error
-
-echo "==> Setting up and building with colcon..."
-
-# Activate virtual environment if available
-VENV_DIR="${HOME}/.venv/bip-pi"
-if [ -f "${VENV_DIR}/bin/activate" ]; then
-    echo "==> Activating virtual environment..."
-    source "${VENV_DIR}/bin/activate"
-fi
-
-# Create workspace if it doesn't exist
-WORKSPACE_DIR="${HOME}/ros2_ws"
-mkdir -p ${WORKSPACE_DIR}/src
-
-# Link current repository to workspace
-echo "==> Linking repository to ROS2 workspace..."
-ln -sf "$(pwd)" "${WORKSPACE_DIR}/src/robotics_platform"
-
-# Change to workspace directory
-cd ${WORKSPACE_DIR}
-
-# Build with colcon
-echo "==> Building with colcon..."
-colcon build --symlink-install
-
-# Run tests if requested
-if [ "$1" == "--test" ]; then
-    echo "==> Running tests..."
-    colcon test
-    colcon test-result --verbose
-fi
-
-echo "==> Build complete! To use the built packages:"
-echo ""
-echo "  source ${WORKSPACE_DIR}/install/setup.bash"
-echo "  ros2 launch robotics_platform robot.py"
-echo ""
-EOF
-chmod +x "$(pwd)/colcon_build.sh"
-
-echo "==> Setup complete! To use robotics platform:"
-echo ""
-echo "  1. Activate environment: source ${VENV_DIR}/bin/activate"
-echo "  2. Start the platform: ros2 launch robotics_platform robot.py"
-echo ""
-echo "==> Or reboot to start automatically with the GUI"
+echo "==> Setup complete!"
+echo "To use the robotics platform:"
+echo "  1. Run: source ${WORKSPACE_DIR}/install/setup.bash"
+echo "  2. Start platform: ros2 launch robotics_platform robot.py"
