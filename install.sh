@@ -5,9 +5,12 @@
 ###############################################################################
 
 # CONFIG
-USERNAME="orangepi"
-AUTOLOGIN="yes"            # yes/no — auto-login to TTY1
-SCREEN_ROTATION=90         # 0 = no rotation, 90 = vertical mode
+USERNAME=$(whoami)  # Get current username
+AUTOLOGIN="yes"     # yes/no — auto-login to TTY1
+SCREEN_ROTATION=90  # 0 = no rotation, 90 = vertical mode
+HOME_DIR=$(eval echo ~${USERNAME})  # Get correct home directory
+
+echo "==> Setting up for user: $USERNAME (home: $HOME_DIR)"
 
 echo "==> Updating system..."
 sudo apt update && sudo apt upgrade -y
@@ -32,19 +35,21 @@ EOF
 fi
 
 # .xinitrc
-echo "==> Creating ~/.xinitrc for Openbox..."
-cat <<EOF > ~/.xinitrc
+echo "==> Creating .xinitrc for Openbox..."
+cat <<EOF > "${HOME_DIR}/.xinitrc"
 exec openbox-session
 EOF
+chown ${USERNAME}:${USERNAME} "${HOME_DIR}/.xinitrc"
 
 # Openbox autostart
 echo "==> Creating Openbox autostart file..."
-mkdir -p ~/.config/openbox
-cat <<EOF > ~/.config/openbox/autostart
+mkdir -p "${HOME_DIR}/.config/openbox"
+cat <<EOF > "${HOME_DIR}/.config/openbox/autostart"
 tint2 &
 xterm &
 conky &
 EOF
+chown -R ${USERNAME}:${USERNAME} "${HOME_DIR}/.config"
 
 # Configure screen rotation via X11 instead of runtime xrandr
 if [ "$SCREEN_ROTATION" -eq 90 ]; then 
@@ -65,8 +70,8 @@ fi
 
 # .bash_profile auto-start
 echo "==> Enabling automatic startx on tty1..."
-if ! grep -q "startx" ~/.bash_profile; then
-  cat <<EOF >> ~/.bash_profile
+if ! grep -q "startx" "${HOME_DIR}/.bash_profile"; then
+  cat <<EOF >> "${HOME_DIR}/.bash_profile"
 
 # Start X only on tty1
 if [[ -z "\$DISPLAY" ]] && [[ \$(tty) == /dev/tty1 ]]; then
@@ -74,6 +79,7 @@ if [[ -z "\$DISPLAY" ]] && [[ \$(tty) == /dev/tty1 ]]; then
 fi
 EOF
 fi
+chown ${USERNAME}:${USERNAME} "${HOME_DIR}/.bash_profile"
 
 # Set default browser
 echo "==> Setting Epiphany as x-www-browser..."
@@ -82,7 +88,7 @@ sudo update-alternatives --set x-www-browser /usr/bin/epiphany-browser
 
 # Conky config with CPU temp
 echo "==> Creating Conky config for temperature display..."
-cat <<EOF > ~/.conkyrc
+cat <<EOF > "${HOME_DIR}/.conkyrc"
 conky.config = {
     alignment = 'top_right',
     background = true,
@@ -101,5 +107,6 @@ CPU Usage: \${cpu}%
 RAM: \$mem / \$memmax
 ]];
 EOF
+chown ${USERNAME}:${USERNAME} "${HOME_DIR}/.conkyrc"
 
 echo "==> Done. Reboot and enjoy your minimal GUI setup!"
