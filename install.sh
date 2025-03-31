@@ -40,23 +40,15 @@ install_pkg "feh"
 install_pkg "epiphany-browser"
 install_pkg "conky"
 
-echo "==> Installing Pygame dependencies..."
-install_pkg "python3-pygame"
-install_pkg "libsdl2-dev"
-install_pkg "libsdl2-ttf-dev"
+# Install Python dependencies directly from apt (the Debian way)
+echo "==> Installing Python dependencies using apt..."
+install_pkg "python3-setuptools"
+install_pkg "python3-pygame"  # From apt instead of pip
+install_pkg "python3-emoji"   # From apt instead of pip
 
-###############################################################################
-# 2. PYTHON DEPENDENCIES - Using pip with --user flag
-###############################################################################
-echo "==> Installing Python packages..."
-pip3 install --user rclpy || echo "Warning: Failed to install rclpy, continuing"
-pip3 install --user emoji || echo "Warning: Failed to install emoji, continuing"
-
-# Only try pygame via pip if system install failed
-if ! python3 -c "import pygame" &>/dev/null; then
-  echo "==> Installing pygame via pip..."
-  pip3 install --user pygame || echo "Warning: Failed to install pygame, continuing"
-fi
+# Try to install minimal ROS2 packages if available
+echo "==> Installing minimal ROS2 packages..."
+install_pkg "python3-rclpy"
 
 ###############################################################################
 # 3. PROJECT SETUP

@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 package_name = 'robotics_platform'
 
@@ -12,7 +12,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/robot.py']),
     ],
-    install_requires=['setuptools'],  # Dependencies are managed by rosdep
+    # We rely on system packages, not pip
+    install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Bip-Pi Team',
     maintainer_email='your.email@example.com',
