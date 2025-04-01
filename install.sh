@@ -37,6 +37,15 @@ sudo apt install -y --no-install-recommends \
   zenity xterm \
   || echo "Warning: Some packages may have failed to install, continuing anyway"
 
+# Install audio, SDL, and graphics dependencies required for PyAudio and Pygame
+separator "Installing audio and graphics dependencies..."
+sudo apt install -y \
+  portaudio19-dev libasound2-dev libportaudio2 \
+  libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+  libfreetype6-dev libportmidi-dev \
+  pkg-config \
+  || echo "Warning: Some audio/graphics packages may have failed to install, continuing anyway"
+
 ###############################################################################
 # 2. SSH SECURITY - RESTRICT TO LOCAL NETWORK
 ###############################################################################
@@ -200,7 +209,10 @@ separator "Setting up Python environment"
 
 # Install build dependencies needed for Python packages
 separator "Installing build dependencies"
-sudo apt install -y libffi-dev build-essential python3-dev
+sudo apt install -y \
+  libffi-dev build-essential python3-dev \
+  libjpeg-dev libpng-dev \
+  || echo "Warning: Some build dependencies may have failed to install, continuing anyway"
 
 # Check Python version
 PYTHON_VERSION=$(python3 --version 2>/dev/null | cut -d ' ' -f 2) || PYTHON_VERSION="0.0.0"
@@ -274,6 +286,11 @@ pip install --upgrade pip setuptools wheel
 echo "==> Installing Poetry 2.1.2 or later..."
 pip install "poetry>=2.1.2"
 
+# Pre-install problematic packages with pip before using Poetry
+echo "==> Pre-installing packages that might cause build issues..."
+pip install wheel
+pip install --no-build-isolation pyaudio pygame
+
 # Verify Poetry installation
 if command -v poetry &>/dev/null; then
     POETRY_VERSION=$(poetry --version | awk '{print $3}')
@@ -282,7 +299,7 @@ if command -v poetry &>/dev/null; then
     # Verify Poetry version meets minimum requirements
     POETRY_MAJOR=$(echo $POETRY_VERSION | cut -d'.' -f1)
     POETRY_MINOR=$(echo $POETRY_VERSION | cut -d'.' -f2)
-    POETRY_PATCH=$(echo $POETRY_VERSION | cut -d'.' -f3)
+    POETRY_PATCH=$(echo $POETRY_VERSION | cut -d'.' -f3 | cut -d'-' -f1) # Handle potential beta versions
     
     if [ "$POETRY_MAJOR" -lt 2 ] || ([ "$POETRY_MAJOR" -eq 2 ] && [ "$POETRY_MINOR" -lt 1 ]) || ([ "$POETRY_MAJOR" -eq 2 ] && [ "$POETRY_MINOR" -eq 1 ] && [ "$POETRY_PATCH" -lt 2 ]); then
         echo "==> WARNING: Poetry version $POETRY_VERSION is below the required 2.1.2."
@@ -307,15 +324,16 @@ if command -v poetry &>/dev/null; then
             echo "==> Please install Python $REQUIRED_PYTHON or later and run this script again"
         fi
         
-        echo "==> WARNING: Installing core dependencies directly with pip as fallback..."
-        pip install pyzmq pygame pyaudio numpy psutil pydantic python-dotenv
+        echo "==> Installing core dependencies directly with pip as fallback..."
+        pip install -U pyzmq numpy psutil pydantic python-dotenv
+        # Note: PyAudio and Pygame should already be installed from the pre-install step
     fi
 else
     echo "==> ERROR: Poetry installation failed!"
     echo "==> This is critical as Poetry 2.1.2+ is required for managing project dependencies."
     echo "==> The fallback installation with pip might not include all required dependencies."
     echo "==> Installing core dependencies directly with pip as emergency fallback..."
-    pip install pyzmq pygame pyaudio numpy psutil pydantic python-dotenv
+    pip install -U pyzmq pygame pyaudio numpy psutil pydantic python-dotenv
 fi
 
 ###############################################################################

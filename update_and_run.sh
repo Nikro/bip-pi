@@ -1,5 +1,4 @@
 #!/bin/bash
-# filepath: /var/www/bip-pi/update_and_run.sh
 # This script updates the repository, validates the environment, and starts the application
 
 # Script constants
