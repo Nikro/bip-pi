@@ -1,8 +1,11 @@
 {
   "ui": {
-    "width": 800,
-    "height": 1280,
+    "width": 1050,
+    "height": 1680,
     "fps": 60,
-    "fullscreen": true
+    "fullscreen": true,
+    "double_buffer": true,
+    "vsync": true,
+    "use_hardware_acceleration": true
   }
 }
