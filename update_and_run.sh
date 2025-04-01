@@ -29,6 +29,18 @@ if [ ! -f "${SCRIPT_DIR}/.first_run_complete" ]; then
         log_message "INFO" "Installing required development libraries..."
         sudo apt-get install -y libffi-dev build-essential python3-dev
         
+        # Install SDL2 Python bindings for better performance
+        log_message "INFO" "Installing PySDL2 for improved performance..."
+        
+        if [ -f ".venv/bin/activate" ]; then
+            source .venv/bin/activate
+            pip install pysdl2 pysdl2-dll
+        elif command -v poetry &>/dev/null; then
+            poetry add pysdl2 pysdl2-dll
+        else
+            log_message "WARNING" "Neither virtual environment nor Poetry found. Cannot install PySDL2."
+        fi
+        
         # Create marker file to avoid repeating this step
         touch "${SCRIPT_DIR}/.first_run_complete"
     fi
@@ -89,6 +101,40 @@ fi
 # Try to activate the Python environment
 log_message "INFO" "Activating Python environment..."
 
+# Check for hardware acceleration options
+detect_hardware_acceleration() {
+    log_message "INFO" "Detecting hardware acceleration capabilities..."
+    if command -v glxinfo &>/dev/null; then
+        if glxinfo | grep -i "direct rendering: yes" > /dev/null; then
+            log_message "INFO" "OpenGL hardware acceleration available"
+            export SDL_VIDEODRIVER=x11
+            export SDL_OPENGL=1
+            return 0
+        fi
+    fi
+    
+    # No hardware acceleration detected, use software rendering
+    log_message "WARNING" "No hardware acceleration detected, using software rendering"
+    export SDL_VIDEODRIVER=x11
+    export SDL_RENDER_DRIVER=software
+    return 1
+}
+
+# Detect and configure hardware acceleration
+detect_hardware_acceleration
+
+# Check for limited resources and set performance flags
+if [ -f "/proc/cpuinfo" ]; then
+    CPU_CORES=$(grep -c "processor" /proc/cpuinfo)
+    
+    if [ "$CPU_CORES" -le 2 ]; then
+        log_message "INFO" "Limited CPU resources detected, enabling performance optimizations"
+        export PYGAME_HIDE_SUPPORT_PROMPT=1
+        export SDL_HINT_RENDER_SCALE_QUALITY=0  # Fastest/lowest quality
+        export SDL_HINT_RENDER_VSYNC=0          # Disable vsync if struggling with performance
+    fi
+fi
+
 # Check for Poetry first
 if command -v poetry &>/dev/null; then
     log_message "INFO" "Using Poetry to run the application..."
@@ -100,7 +146,7 @@ if command -v poetry &>/dev/null; then
     
     # Run the UI application with Poetry
     log_message "INFO" "Starting UI application with Poetry..."
-    poetry run python -m src.ui.ui
+    poetry run python -m src.ui.ui --optimize-for-hardware
     
     exit_code=$?
     log_message "INFO" "UI application exited with code $exit_code at $(date)"
@@ -113,7 +159,7 @@ else
         
         # Start the UI application directly
         log_message "INFO" "Starting UI application with Python..."
-        python -m src.ui.ui
+        python -m src.ui.ui --optimize-for-hardware
         
         exit_code=$?
         log_message "INFO" "UI application exited with code $exit_code at $(date)"
