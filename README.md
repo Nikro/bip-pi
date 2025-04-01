@@ -1,6 +1,14 @@
-# Bip-Pi: ROS2 Robotics Platform
+# Reactive Companion System
 
-A ROS2-based robotics platform optimized for Raspberry Pi with a Pygame UI.
+A modular Python-based reactive companion system optimized for small single-board computers.
+
+## Overview
+
+This system uses three communicating processes via ZeroMQ:
+
+1. **Awareness Node** - Monitors environment via audio/video
+2. **Brains Node** - Processes triggers and generates responses
+3. **UI Node** - Provides visual feedback and interaction
 
 ## Installation
 
@@ -8,35 +16,37 @@ Setup is simple with our all-in-one installation script:
 
 ```bash
 git clone <this-repo-url>
-cd bip-pi
+cd reactive-companion
 chmod +x install.sh
 ./install.sh
 ```
 
 This will:
-1. Set up a lightweight GUI environment
-2. Install ROS2 Humble
-3. Configure your ROS2 workspace
-4. Build the robotics platform
+1. Set up a lightweight GUI environment (OpenBox)
+2. Configure auto-login and display
+3. Create the project structure
+4. Set up Python environment with Poetry
+5. Configure SSH for local network access only
 
-## Using the Platform
+## Using the System
 
-After installation, you can run the platform with:
-
-```bash
-# The environment is already set up by the installer
-ros2 run robotics_platform main
-```
-
-To rebuild after making changes:
+After installation, you can run the components:
 
 ```bash
-./colcon_build.sh
+# The environment is automatically activated
+cd ~/reactive-companion
+
+# Start the UI
+python -m src.ui.ui
+
+# In separate terminals:
+python -m src.awareness.awareness
+python -m src.brains.brains
 ```
 
 ## Project Structure
 
-- core: Core robotics loop
-- ui: Pygame-based user interface
-- ros2_nodes: ROS2 nodes for system functionality
-- launch: ROS2 launch files
+- **awareness**: Environmental monitoring and trigger detection
+- **brains**: Core processing and response generation 
+- **ui**: Pygame-based user interface
+- **common**: Shared utilities and messaging infrastructure

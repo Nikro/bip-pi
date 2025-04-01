@@ -1,0 +1,54 @@
+[tool.poetry]
+name = "reactive-companion"
+version = "0.1.0"
+description = "A reactive companion system with awareness, brains, and visual feedback using ZeroMQ."
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+pyzmq = "^25.0"       # ZeroMQ Python bindings
+pygame = "^2.1"       # For UI
+pyaudio = "^0.2.13"   # For audio processing
+numpy = "^1.23"       # For numerical processing
+psutil = "^5.9"       # For system monitoring
+pydantic = "^2.0"     # For data validation
+python-dotenv = "^1.0" # For environment variable management
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0"
+pytest-cov = "^4.0"
+black = "^23.1"
+isort = "^5.12"
+mypy = "^1.0"
+flake8 = "^6.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+ui = "src.ui.ui:main"
+awareness = "src.awareness.awareness:main"
+brains = "src.brains.brains:main"
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+module = ["pygame.*", "pyaudio.*"]
+ignore_missing_imports = true

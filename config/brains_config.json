@@ -1,0 +1,7 @@
+{
+  "agent": {
+    "model": "simple",
+    "temperature": 0.7,
+    "max_tokens": 100
+  }
+}

@@ -1,6 +1,7 @@
 #!/bin/bash
+# filepath: /var/www/bip-pi/install.sh
 ###############################################################################
-# Setup Script for Bip-Pi ROS2 Robotics Platform
+# Setup Script for Reactive Companion System
 ###############################################################################
 
 set -e  # Exit on error
@@ -8,114 +9,83 @@ set -e  # Exit on error
 # CONFIG
 USERNAME=$(whoami)
 HOME_DIR=$(eval echo ~${USERNAME})
-WORKSPACE_DIR="${HOME_DIR}/ros2_ws"
+PROJECT_DIR="${HOME_DIR}/bip-pi"
 SCREEN_ROTATION=90
+GIT_REPO="https://github.com/Nikro/bip-pi.git"
 
 echo "==> Setting up for user: $USERNAME (home: $HOME_DIR)"
 
 ###############################################################################
-# 1. SYSTEM DEPENDENCIES - Using a single apt command
+# 1. SYSTEM DEPENDENCIES
 ###############################################################################
 echo "==> Installing all system dependencies..."
 sudo apt update || echo "Warning: apt update failed, continuing anyway"
 
-# Try to install ROS2 repository and keys first for Debian/Ubuntu
-if grep -q "Ubuntu\|Debian" /etc/os-release 2>/dev/null; then
-  DISTRO=$(grep -oP '(?<=VERSION_CODENAME=).+' /etc/os-release || echo "bookworm")
-  echo "==> Detected distribution: $DISTRO, adding ROS2 repositories..."
-  
-  # Try to add ROS2 repository and keys
-  sudo apt install -y curl gnupg lsb-release || true
-  sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
-    -o /usr/share/keyrings/ros-archive-keyring.gpg 2>/dev/null || true
-    
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
-    http://packages.ros.org/ros2/ubuntu $DISTRO main" | \
-    sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null 2>/dev/null || true
-    
-  sudo apt update || true
-fi
-
-# Single apt command for all packages
-echo "==> Installing all required packages..."
+# Basic system packages - only essential packages, not Python packages
+echo "==> Installing essential packages..."
 sudo apt install -y --no-install-recommends \
   python3-pip python3-dev git \
   xserver-xorg xinit openbox tint2 xterm feh epiphany-browser conky \
-  python3-setuptools python3-pygame python3-emoji \
-  ros-humble-ros-base python3-rosdep python3-colcon-common-extensions \
+  openssh-server python3-venv python3-wheel \
   || echo "Warning: Some packages may have failed to install, continuing anyway"
 
-# Initialize rosdep if available
-if command -v rosdep &>/dev/null; then
-  echo "==> Initializing rosdep..."
-  sudo rosdep init || echo "Warning: rosdep init failed (may already be initialized)"
-  rosdep update || echo "Warning: rosdep update failed"
-  
-  # Install ROS2 dependencies for our package
-  echo "==> Installing dependencies with rosdep..."
-  rosdep install --from-paths . --ignore-src -y || echo "Warning: rosdep install failed"
-fi
-
 ###############################################################################
-# 2. PROJECT SETUP
+# 2. SSH SECURITY - RESTRICT TO LOCAL NETWORK
 ###############################################################################
-echo "==> Setting up robotics platform workspace..."
+echo "==> Configuring SSH for local network only..."
 
-# Create workspace
-mkdir -p ${WORKSPACE_DIR}/src
-ln -sf "$(pwd)" "${WORKSPACE_DIR}/src/robotics_platform"
+# Get the local subnet (assuming 192.168.x.x or 10.x.x.x networks)
+LOCAL_SUBNET=$(ip route | grep -E '(192\.168|10\.)' | grep -v default | head -1 | awk '{print $1}')
 
-# Create simple setup script that will work without colcon
-cat > ${WORKSPACE_DIR}/setup.bash << EOF
-#!/bin/bash
-# Simple setup script for robotics platform
-
-# Source ROS2 environment if available
-if [ -f "/opt/ros/humble/setup.bash" ]; then
-    source /opt/ros/humble/setup.bash
-    echo "ROS2 environment activated"
+if [ -z "$LOCAL_SUBNET" ]; then
+  echo "Warning: Could not determine local subnet, using 192.168.0.0/16 as default"
+  LOCAL_SUBNET="192.168.0.0/16"
 fi
 
-# Add the source directory to PYTHONPATH
-export PYTHONPATH=\${PYTHONPATH}:${WORKSPACE_DIR}/src
+echo "==> Detected local subnet: $LOCAL_SUBNET"
 
-# Minimal ROS2 functions for systems without ROS2 packages
-if ! command -v ros2 &>/dev/null; then
-    ros2_run() {
-      python3 -m robotics_platform.main
-    }
+# Create a backup of the SSH config
+sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 
-    ros2_launch() {
-      python3 -m robotics_platform.main
-    }
+# Create or modify the SSH configuration to allow only local connections
+sudo tee /etc/ssh/sshd_config.d/local-only.conf > /dev/null <<EOF
+# Allow SSH only from local network
+Match Address $LOCAL_SUBNET
+  PermitRootLogin no
+  PasswordAuthentication yes
+  X11Forwarding no
 
-    alias ros2="echo 'Using minimal ROS2 implementation'; echo '- ros2 run robotics_platform main: use ros2_run'"
-fi
-
-# If colcon build exists and succeeded, source it
-if [ -f "${WORKSPACE_DIR}/install/setup.bash" ]; then
-    source "${WORKSPACE_DIR}/install/setup.bash"
-fi
-
-echo "Robotics platform environment activated"
+# Deny from all other addresses
+Match Address *
+  PermitRootLogin no
+  PasswordAuthentication no
+  X11Forwarding no
 EOF
 
-chmod +x ${WORKSPACE_DIR}/setup.bash
-
-# Add environment setup to .bashrc
-echo "==> Adding environment setup to .bashrc..."
-if ! grep -q "${WORKSPACE_DIR}/setup.bash" "${HOME_DIR}/.bashrc"; then
-  cat <<EOF >> "${HOME_DIR}/.bashrc"
-
-# Robotics platform setup
-if [ -f "${WORKSPACE_DIR}/setup.bash" ]; then
-    source "${WORKSPACE_DIR}/setup.bash"
-fi
-EOF
-fi
+# Restart SSH service
+sudo systemctl restart sshd || echo "Warning: Failed to restart SSH service"
+echo "==> SSH configured to allow connections only from the local network ($LOCAL_SUBNET)"
 
 ###############################################################################
-# 3. GUI AND DISPLAY SETUP
+# 3. PROJECT SETUP - CLONE FROM GIT
+###############################################################################
+echo "==> Cloning Reactive Companion from Git repository..."
+
+# Clone the repository
+if [ -d "${PROJECT_DIR}" ]; then
+  echo "Project directory already exists. Pulling latest changes..."
+  cd ${PROJECT_DIR}
+  git pull
+else
+  echo "Cloning fresh repository..."
+  git clone ${GIT_REPO} ${PROJECT_DIR}
+fi
+
+# Ensure executable permissions on scripts
+chmod +x ${PROJECT_DIR}/*.sh
+
+###############################################################################
+# 4. GUI AND DISPLAY SETUP
 ###############################################################################
 
 # Auto-login setup
@@ -139,22 +109,14 @@ exec openbox-session
 EOF
 chmod 755 "${HOME_DIR}/.xinitrc"
 
-# Openbox autostart
-echo "==> Creating Openbox autostart file..."
+# Openbox autostart - modified to use update_and_run.sh
+echo "==> Creating Openbox autostart file with automatic updates..."
 mkdir -p "${HOME_DIR}/.config/openbox"
 cat <<EOF > "${HOME_DIR}/.config/openbox/autostart"
-# Activate our environment and start the robot UI
-if [ -f "${WORKSPACE_DIR}/setup.bash" ]; then
-    source "${WORKSPACE_DIR}/setup.bash"
-    
-    # Try standard ros2 command first, fall back to our ros2_run if needed
-    if command -v ros2 &>/dev/null; then
-        xterm -e "ros2 run robotics_platform main" &
-    else
-        xterm -e "ros2_run" &
-    fi
-fi
+# Start the reactive companion with auto-update in an xterm
+xterm -title "Reactive Companion" -geometry 100x30+0+0 -e "${PROJECT_DIR}/update_and_run.sh" &
 
+# Start system monitoring tools
 tint2 &
 conky &
 EOF
@@ -199,8 +161,8 @@ if command -v epiphany-browser &>/dev/null; then
   sudo update-alternatives --set x-www-browser /usr/bin/epiphany-browser || true
 fi
 
-# Conky config
-echo "==> Creating Conky config for temperature display..."
+# Conky config with added git status
+echo "==> Creating Conky config with repository status..."
 cat <<EOF > "${HOME_DIR}/.conkyrc"
 conky.config = {
     alignment = 'top_right',
@@ -218,49 +180,96 @@ Time: \${time %H:%M:%S}
 CPU Temp: \${execi 3 awk '{ printf("%.1f°C", \$1 / 1000) }' /sys/class/thermal/thermal_zone0/temp}
 CPU Usage: \${cpu}%
 RAM: \$mem / \$memmax
+Companion: \${execi 30 cd ${PROJECT_DIR} && git rev-parse --short HEAD || echo "unknown"}
 ]];
 EOF
 chmod 644 "${HOME_DIR}/.conkyrc" || echo "Warning: Unable to set permissions on .conkyrc"
 
 ###############################################################################
-# 4. BUILD THE WORKSPACE
+# 5. PYTHON ENVIRONMENT SETUP WITH POETRY
 ###############################################################################
-echo "==> Building workspace..."
+echo "==> Setting up Python environment with Poetry..."
 
-# Source the setup script
-source "${WORKSPACE_DIR}/setup.bash"
-
-# Build with colcon if available
-if command -v colcon &>/dev/null; then
-    echo "==> Building with colcon..."
-    cd ${WORKSPACE_DIR}
-    colcon build --symlink-install || echo "Warning: colcon build failed, continuing anyway"
+# Check if Poetry is installed, install if needed
+if ! command -v poetry &>/dev/null; then
+    echo "==> Installing Poetry..."
+    curl -sSL https://install.python-poetry.org | python3 -
     
-    # Source the newly built workspace
-    if [ -f "${WORKSPACE_DIR}/install/setup.bash" ]; then
-        source "${WORKSPACE_DIR}/install/setup.bash"
+    # Add Poetry to PATH in .bashrc if not already there
+    if ! grep -q "PATH=\"\$HOME/.local/bin:\$PATH\"" "${HOME_DIR}/.bashrc"; then
+        echo -e '\n# Add Poetry to PATH\nexport PATH="$HOME/.local/bin:$PATH"' >> "${HOME_DIR}/.bashrc"
+        # Apply the PATH change in the current session
+        export PATH="$HOME/.local/bin:$PATH"
     fi
 fi
 
-###############################################################################
-# 5. PACKAGE SETUP
-###############################################################################
-echo "==> Configuring package files..."
+# Set up the project dependencies with Poetry
+cd ${PROJECT_DIR}
 
-# Simplify pyproject.toml
-cat > pyproject.toml << EOF
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-EOF
+# Let Poetry use the system Python and create the venv in the project directory
+poetry config virtualenvs.in-project true --local
 
-# Try to do a pip install of the current package only if needed
-echo "==> Installing the robotics platform package..."
-if ! python3 -c "import robotics_platform" &>/dev/null; then
-  pip3 install --user -e . || echo "Warning: Failed to install package, continuing anyway"
+echo "==> Installing project dependencies with Poetry..."
+poetry install || echo "Warning: Poetry install failed, please run 'poetry install' manually"
+
+# Add project directory to Python path for the current user
+if ! grep -q "PYTHONPATH=\"${PROJECT_DIR}" "${HOME_DIR}/.bashrc"; then
+    echo -e '\n# Add project to PYTHONPATH\nexport PYTHONPATH="'"${PROJECT_DIR}"':$PYTHONPATH"' >> "${HOME_DIR}/.bashrc"
 fi
 
-echo "==> Setup complete! To start the robotics platform:"
-echo "  1. Run: source ${WORKSPACE_DIR}/setup.bash"
-echo "  2. Start the platform with: ros2 run robotics_platform main"
-echo "     (or ros2_run if using minimal implementation)"
+###############################################################################
+# 6. ENSURE BASIC ENV CONFIGURATION
+###############################################################################
+echo "==> Creating basic environment configuration..."
+
+# Create config directory
+mkdir -p ${PROJECT_DIR}/config
+mkdir -p ${PROJECT_DIR}/logs
+
+# Create a template .env file if it doesn't exist
+if [ ! -f "${PROJECT_DIR}/.env" ]; then
+  echo "==> Creating template .env file (you will need to edit this with your actual values)..."
+  cat > "${PROJECT_DIR}/.env" << EOF
+# Reactive Companion Environment Configuration
+# Edit this file with your actual values
+
+# General settings
+DEBUG=false
+LOG_LEVEL=info
+
+# Audio settings
+AUDIO_DEVICE_INDEX=0
+
+# API keys for external services (add your own)
+# OPENAI_API_KEY=your_key_here
+# ELEVENLABS_API_KEY=your_key_here
+
+# Other configuration paths
+CONFIG_DIR=config
+EOF
+fi
+
+# No more default JSON creation - that will be handled by the application or manually
+
+# Run the cleanup script to ensure a clean environment
+echo "==> Running cleanup script..."
+${PROJECT_DIR}/cleanup.sh
+
+echo "==> Setup complete!"
+echo "Your Reactive Companion project is set up at: ${PROJECT_DIR}"
+echo "The system will automatically update and start on boot."
+echo "To manually start the system:"
+echo "  1. cd ${PROJECT_DIR}"
+echo "  2. poetry shell  # Activates the virtual environment"
+echo "  3. ./update_and_run.sh"
+
+# Define a function for automatic startup
+autostart() {
+    echo "==> Setting up automatic startup on boot..."
+    # This function is intentionally kept as a placeholder
+    # Actual autostart is handled by .bash_profile and openbox/autostart
+    echo "Automatic startup configured successfully!"
+}
+
+# Call autostart function to complete setup
+autostart

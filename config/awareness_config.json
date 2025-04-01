@@ -1,0 +1,15 @@
+{
+  "audio": {
+    "enabled": true,
+    "sample_rate": 16000,
+    "chunk_size": 1024,
+    "amplitude_threshold": 1000
+  },
+  "video": {
+    "enabled": false
+  },
+  "triggers": {
+    "cooldown": 2.0,
+    "keywords": ["hey", "hello", "computer"]
+  }
+}

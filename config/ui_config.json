@@ -1,0 +1,8 @@
+{
+  "ui": {
+    "width": 800,
+    "height": 480,
+    "fps": 30,
+    "fullscreen": true
+  }
+}
