@@ -131,7 +131,7 @@ separator "Creating Openbox autostart file with automatic updates..."
 mkdir -p "${HOME_DIR}/.config/openbox"
 cat <<EOF > "${HOME_DIR}/.config/openbox/autostart"
 # Start the reactive companion with auto-update in an xterm
-xterm -title "Reactive Companion" -geometry 100x30+0+0 --hold -e "bash -c '${PROJECT_DIR}/update_and_run.sh >> ${PROJECT_DIR}/logs/update_and_run.log 2>&1'" &
+xterm -title "Reactive Companion" -geometry 100x30+0+0 -e "bash -c '${PROJECT_DIR}/update_and_run.sh >> ${PROJECT_DIR}/logs/update_and_run.log 2>&1'" &
 EOF
 chmod 755 "${HOME_DIR}/.config/openbox/autostart"
 
@@ -296,11 +296,6 @@ if command -v poetry &>/dev/null; then
     POETRY_MAJOR=$(echo $POETRY_VERSION | cut -d'.' -f1)
     POETRY_MINOR=$(echo $POETRY_VERSION | cut -d'.' -f2)
     POETRY_PATCH=$(echo $POETRY_VERSION | cut -d'.' -f3 | cut -d'-' -f1) # Handle potential beta versions
-    
-    if [ "$POETRY_MAJOR" -lt 2 ] || ([ "$POETRY_MAJOR" -eq 2 ] && [ "$POETRY_MINOR" -lt 1 ]) || ([ "$POETRY_MAJOR" -eq 2 ] && [ "$POETRY_MINOR" -eq 1 ] && [ "$POETRY_PATCH" -lt 2 ]); then
-        echo "==> WARNING: Poetry version $POETRY_VERSION is below the required 2.1.2."
-        echo "==> This might cause compatibility issues with the project."
-    fi
     
     # Configure Poetry to use the virtual environment we just created
     poetry config virtualenvs.in-project true --local

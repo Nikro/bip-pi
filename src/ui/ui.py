@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Tuple, Optional
 
 # Simple direct import - no try/except that could cause scope issues
 import pygame
-from pygame.locals import FULLSCREEN, HWSURFACE, DOUBLEBUF, SRCALPHA
+from pygame.locals import FULLSCREEN, HWSURFACE, DOUBLEBUF, SRCALPHA, SCALED
 
 from ..common import (
     setup_logger, PublisherBase, SubscriberBase, RequestorBase,
@@ -220,42 +220,67 @@ class UINode:
     """Main UI node class with optimizations for low-end hardware."""
     
     def __init__(self, config_path: Optional[str] = None):
-        """Initialize the optimized UI node using native resolution."""
+        """Initialize the optimized UI node using the exact configured resolution."""
         logger.info("Initializing UI node...")
         
         # Load configuration
         self.config = load_config(config_path) if config_path else {}
         
-        # Initialize PyGame
+        # Initialize PyGame with better driver selection
         logger.info("Initializing pygame...")
+        os.environ['SDL_VIDEODRIVER'] = 'x11'  # Force X11 driver for better resolution control
         pygame.init()
         
-        # Display init
+        # Display init with system info
         pygame.display.init()
+        info = pygame.display.Info()
+        logger.info(f"System display capabilities: {info.current_w}x{info.current_h}")
         
-        # Use configured native resolution without scaling
+        # Use configured exact resolution - no scaling
         self.width = self.config.get("ui", {}).get("width", 800)
-        self.height = self.config.get("ui", {}).get("height", 600)
-        self.fps = self.config.get("ui", {}).get("fps", 30)
-        self.fullscreen = self.config.get("ui", {}).get("fullscreen", False)  # Start windowed for debugging
+        self.height = self.config.get("ui", {}).get("height", 1280)
+        self.fps = self.config.get("ui", {}).get("fps", 60)
+        self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
         
-        logger.info(f"Setting up display with resolution: {self.width}x{self.height}")
+        logger.info(f"Enforcing exact display resolution: {self.width}x{self.height}")
         
-        # Create window
-        flags = 0
+        # Create window with hardcoded resolution that matches config
+        # Use SCALED flag to maintain aspect ratio but enforce resolution
         if self.fullscreen:
-            flags |= FULLSCREEN
+            flags = FULLSCREEN | HWSURFACE | DOUBLEBUF | SCALED
+            logger.info("Setting fullscreen mode with forced resolution")
+            # For fullscreen, we need to set the video mode explicitly
+            pygame.display.set_mode((self.width, self.height), flags)
+        else:
+            flags = HWSURFACE | DOUBLEBUF
+            logger.info("Setting windowed mode")
+            pygame.display.set_mode((self.width, self.height), flags)
         
-        self.screen = pygame.display.set_mode((self.width, self.height), flags)
         pygame.display.set_caption("Reactive Companion")
         
-        # Get actual screen size (may differ from requested size)
+        # Verify actual screen size after setting mode
+        self.screen = pygame.display.get_surface()
         actual_width, actual_height = self.screen.get_size()
-        logger.info(f"Actual display size: {actual_width}x{actual_height}")
+        logger.info(f"Actual display size after setup: {actual_width}x{actual_height}")
         
-        # Update dimensions to actual size
-        self.width = actual_width
-        self.height = actual_height
+        # If there's a mismatch, try one more time with a different approach
+        if actual_width != self.width or actual_height != self.height:
+            logger.warning(f"Resolution mismatch! Trying alternate approach...")
+            
+            # Alternative approach using a specific combination of flags
+            if self.fullscreen:
+                # Sometimes removing SCALED flag helps with exact resolution
+                flags = FULLSCREEN | HWSURFACE | DOUBLEBUF
+                self.screen = pygame.display.set_mode((self.width, self.height), flags)
+                logger.info("Retrying with different flags combination")
+            
+            # Check again
+            actual_width, actual_height = self.screen.get_size()
+            logger.info(f"Revised display size: {actual_width}x{actual_height}")
+            
+            # Update dimensions based on what we actually got
+            self.width = actual_width
+            self.height = actual_height
         
         # Create subsurfaces for partial updates
         self.top_panel_height = self.height // 2
@@ -400,10 +425,18 @@ class UINode:
                     logger.info(f"Debug mode toggled: {self.state.show_debug}")
                 
                 elif event.key == pygame.K_f:
-                    # Toggle fullscreen
+                    # Toggle fullscreen with exact resolution
                     self.fullscreen = not self.fullscreen
-                    flags = FULLSCREEN | HWSURFACE | DOUBLEBUF if self.fullscreen else HWSURFACE | DOUBLEBUF
+                    
+                    # Enforce the exact resolution when toggling
+                    if self.fullscreen:
+                        flags = FULLSCREEN | HWSURFACE | DOUBLEBUF | SCALED
+                    else:
+                        flags = HWSURFACE | DOUBLEBUF
+                    
+                    # Set mode with configured resolution
                     self.screen = pygame.display.set_mode((self.width, self.height), flags)
+                    logger.info(f"Toggled fullscreen mode to {self.fullscreen}, resolution: {self.width}x{self.height}")
                     
                     # Recreate subsurfaces after display mode change
                     self.top_surface = self.screen.subsurface((0, 0, self.width, self.top_panel_height))
