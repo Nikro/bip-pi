@@ -193,25 +193,19 @@ class UIAssets:
             
             # Use the most efficient drawing method available
             if HAS_GFXDRAW:
-                # Fix the dark border artifact by using a single method with proper color
-                # The issue was caused by overlapping filled_circle and aacircle operations
-                
-                # First draw the filled circle
+                # Use gfxdraw for better antialiasing and performance
                 pygame.gfxdraw.filled_circle(
                     surface, center_x, center_y, radius, color
                 )
-                
-                # Then draw only the anti-aliased edge with the same color
-                # This eliminates the dark border artifact
+                # Add an antialiased edge for smoother appearance
                 pygame.gfxdraw.aacircle(
                     surface, center_x, center_y, radius, color
                 )
-                
             else:
                 # Standard circle drawing as fallback
                 pygame.draw.circle(surface, color, (center_x, center_y), radius)
             
-            # Convert surface for faster blitting with alpha
+            # Convert surface for faster blitting if not using alpha
             frames.append(surface.convert_alpha())
         
         return frames
@@ -289,7 +283,7 @@ class UINode:
         # Use configured exact resolution - no scaling
         self.width = self.config.get("ui", {}).get("width", 1050)
         self.height = self.config.get("ui", {}).get("height", 1680)
-        self.fps = self.config.get("ui", {}).get("fps", 30)
+        self.fps = self.config.get("ui", {}).get("fps", 60)
         self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
         self.vsync = self.config.get("ui", {}).get("vsync", True)
         self.use_hw_accel = self.config.get("ui", {}).get("use_hardware_acceleration", True)
@@ -423,8 +417,6 @@ class UINode:
         self.current_frame = 0
         self.frame_count = 0
         self.bottom_update_counter = 0
-        self.animation_update_counter = 0  # Counter to control animation speed
-        self.animation_update_rate = 5     # Only update animation every N frames
         self.last_frame_time = time.time()
         self.frame_time_buffer = []  # For calculating moving average FPS
         self.last_blit_rects = []    # Track areas for incremental updates
@@ -439,7 +431,6 @@ class UINode:
             "last_blit_time": 0.0,
             "last_surface_time": 0.0,
             "dirty_rects_count": 0,
-            "animation_speed": f"1/{self.animation_update_rate}",  # Show animation speed in debug
         }
         
         # Calculate animation cache size
@@ -599,19 +590,6 @@ class UINode:
                     # Recreate subsurfaces after display mode change
                     self._create_panel_surfaces()
                     self.debug_metrics["fullscreen_mode"] = self.fullscreen
-                
-                elif event.key == pygame.K_UP:
-                    # Speed up animation
-                    if self.animation_update_rate > 1:
-                        self.animation_update_rate -= 1
-                        self.debug_metrics["animation_speed"] = f"1/{self.animation_update_rate}"
-                        logger.info(f"Animation speed increased: {self.debug_metrics['animation_speed']}")
-                
-                elif event.key == pygame.K_DOWN:
-                    # Slow down animation
-                    self.animation_update_rate += 1
-                    self.debug_metrics["animation_speed"] = f"1/{self.animation_update_rate}"
-                    logger.info(f"Animation speed decreased: {self.debug_metrics['animation_speed']}")
     
     def _check_messages(self) -> None:
         """Check for messages from other nodes with minimal blocking."""
@@ -621,19 +599,8 @@ class UINode:
             self.state.update_from_message(message)
     
     def _update_animation(self) -> None:
-        """
-        Update animation state at a controlled rate.
-        
-        This slows down the animation by only advancing frames
-        every N game frames, where N is animation_update_rate.
-        """
-        # Increment the counter
-        self.animation_update_counter += 1
-        
-        # Only update animation frame when counter reaches update rate
-        if self.animation_update_counter >= self.animation_update_rate:
-            self.current_frame = (self.current_frame + 1) % len(self.assets.animation_frames)
-            self.animation_update_counter = 0
+        """Update animation state."""
+        self.current_frame = (self.current_frame + 1) % len(self.assets.animation_frames)
     
     def _render_top_panel(self, dirty_rects: List[pygame.Rect]) -> None:
         """
@@ -786,7 +753,7 @@ class UINode:
             f"RECTS: {self.debug_metrics['dirty_rects_count']}",
             f"CACHE: {self.debug_metrics['animation_cache_size']:.1f}KB",
             f"GFXDRAW: {'Yes' if self.debug_metrics['using_gfxdraw'] else 'No'}",
-            f"ANIM: {self.current_frame+1}/{len(self.assets.animation_frames)} ({self.debug_metrics['animation_speed']})",
+            f"ANIM: {self.current_frame+1}/{len(self.assets.animation_frames)}",
             f"FULLSCREEN: {'Yes' if self.fullscreen else 'No'}"
         ]
         
