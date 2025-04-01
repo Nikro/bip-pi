@@ -16,7 +16,7 @@ import ctypes
 # Import SDL2 library - a more direct and efficient graphics library than Pygame
 import sdl2
 import sdl2.ext
-import sdl2.surface
+import sdl2.sdlttf
 
 from ..common import (
     setup_logger, PublisherBase, SubscriberBase, RequestorBase,
@@ -32,10 +32,11 @@ BLACK = sdl2.ext.Color(0, 0, 0)
 WHITE = sdl2.ext.Color(255, 255, 255)
 GRAY = sdl2.ext.Color(128, 128, 128)
 LIGHT_GRAY = sdl2.ext.Color(200, 200, 200)
-BLUE = sdl2.ext.Color(0, 0, 255)
-LIGHT_BLUE = sdl2.ext.Color(100, 100, 255)
-GREEN = sdl2.ext.Color(0, 255, 0)
 RED = sdl2.ext.Color(255, 0, 0)
+
+# Font paths - using system fonts for better compatibility
+FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+MONO_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 
 class BackgroundMonitor(threading.Thread):
     """Background thread for system monitoring tasks."""
@@ -95,195 +96,203 @@ class BackgroundMonitor(threading.Thread):
 
 
 class UIAssets:
-    """Container for UI assets with pre-rendered animations for better performance."""
+    """Container for UI assets with proper text rendering and optimized animations."""
     
     def __init__(self, screen_width: int, screen_height: int, renderer):
         """Initialize and pre-render UI assets once to avoid runtime overhead."""
         self.renderer = renderer
         self.screen_width = screen_width
         self.screen_height = screen_height
-        self.factory = sdl2.ext.SpriteFactory(sdl2.ext.SOFTWARE)
         
         # Calculate dimensions for animation panel
         self.animation_size = min(screen_width, screen_height // 2) - 40
         
-        # Create font resources - use smaller font sizes for better display
+        # Initialize SDL2 TTF for proper text rendering
+        if sdl2.sdlttf.TTF_Init() != 0:
+            logger.error(f"TTF initialization error: {sdl2.sdlttf.TTF_GetError().decode()}")
+        
+        # Load fonts with appropriate sizes
         font_scale = max(0.6, min(screen_width, screen_height) / 640)
         self.title_font_size = int(24 * font_scale)
         self.text_font_size = int(16 * font_scale)
         self.small_font_size = int(12 * font_scale)
         
-        # Pre-render animation frames (only RED for efficiency as requested)
-        self.animation_frames = self._create_animation_frames(RED, 5)  # Reduced to 5 frames for better performance
+        # Try to load system fonts, fallback if not available
+        try:
+            self.title_font = sdl2.sdlttf.TTF_OpenFont(FONT_PATH.encode(), self.title_font_size)
+            self.text_font = sdl2.sdlttf.TTF_OpenFont(FONT_PATH.encode(), self.text_font_size)
+            self.small_font = sdl2.sdlttf.TTF_OpenFont(MONO_FONT_PATH.encode(), self.small_font_size)
+            
+            if not self.title_font or not self.text_font or not self.small_font:
+                logger.warning(f"Font loading error: {sdl2.sdlttf.TTF_GetError().decode()}")
+                self._fallback_font_init()
+        except Exception as e:
+            logger.error(f"Error loading fonts: {e}")
+            self._fallback_font_init()
+            
+        # Pre-render animation frames (RED for efficiency as requested)
+        self.animation_frames = self._create_animation_frames(RED, 10)
+    
+    def _fallback_font_init(self):
+        """Initialize fallback fonts if system fonts are unavailable."""
+        # Scan for any available fonts in common locations
+        font_dirs = [
+            "/usr/share/fonts/truetype",
+            "/usr/share/fonts/TTF",
+            "/usr/share/fonts"
+        ]
         
-        # Pre-render font character map for faster text rendering
-        self._init_bitmap_font()
+        font_found = False
+        for font_dir in font_dirs:
+            if not os.path.exists(font_dir):
+                continue
+                
+            for root, _, files in os.walk(font_dir):
+                for file in files:
+                    if file.endswith(".ttf") and not font_found:
+                        font_path = os.path.join(root, file)
+                        logger.info(f"Using fallback font: {font_path}")
+                        
+                        self.title_font = sdl2.sdlttf.TTF_OpenFont(font_path.encode(), self.title_font_size)
+                        self.text_font = sdl2.sdlttf.TTF_OpenFont(font_path.encode(), self.text_font_size)
+                        self.small_font = sdl2.sdlttf.TTF_OpenFont(font_path.encode(), self.small_font_size)
+                        
+                        if self.title_font and self.text_font and self.small_font:
+                            font_found = True
+                            break
+                
+                if font_found:
+                    break
+            
+            if font_found:
+                break
     
     def _create_animation_frames(self, color, num_frames):
         """Pre-render animation frames for better performance."""
         frames = []
         animation_size = self.animation_size
         
-        # Use simple circle animation without complex glow effects
         for i in range(num_frames):
             # Calculate pulse factor (0.7 to 1.0)
             pulse_factor = 0.7 + 0.3 * abs(num_frames/2 - i) / (num_frames/2)
             
             # Create surface for this frame
-            surface = sdl2.SDL_CreateRGBSurface(0, animation_size, animation_size, 32, 
-                                               0xFF000000, 0x00FF0000, 0x0000FF00, 0x000000FF)
+            surface = sdl2.SDL_CreateRGBSurface(
+                0, animation_size, animation_size, 32,
+                0xFF000000, 0x00FF0000, 0x0000FF00, 0x000000FF
+            )
             
             # Fill with black (transparent background)
-            sdl2.SDL_FillRect(surface, None, sdl2.SDL_MapRGBA(surface.contents.format, 0, 0, 0, 0))
+            sdl2.SDL_FillRect(
+                surface, None, 
+                sdl2.SDL_MapRGBA(surface.contents.format, 0, 0, 0, 0)
+            )
             
-            # Draw circle
+            # Calculate circle parameters
             radius = int(animation_size // 2.5 * pulse_factor)
             center_x = animation_size // 2
             center_y = animation_size // 2
             
-            # Draw a simple filled circle - much faster than multiple transparent layers
-            self._draw_filled_circle(surface, center_x, center_y, radius, 
-                                    color.r, color.g, color.b, 255)
+            # Draw filled circle
+            self._draw_circle(surface, center_x, center_y, radius, color)
             
             # Create texture from surface
             texture = sdl2.SDL_CreateTextureFromSurface(self.renderer, surface)
             frames.append(texture)
-            sdl2.SDL_FreeSurface(surface)
             
+            # Free surface
+            sdl2.SDL_FreeSurface(surface)
+        
         return frames
     
-    def _draw_filled_circle(self, surface, x, y, radius, r, g, b, a):
-        """Draw a filled circle using a more efficient algorithm."""
-        # This is a simple and efficient circle drawing algorithm
+    def _draw_circle(self, surface, x, y, radius, color):
+        """Draw a circle with better visibility and efficiency."""
+        # Get format-specific color mapping
+        color_val = sdl2.SDL_MapRGBA(
+            surface.contents.format, color.r, color.g, color.b, 255
+        )
+        
+        # More efficient circle drawing algorithm that fills from inside out
+        r_squared = radius * radius
         for dy in range(-radius, radius + 1):
-            for dx in range(-radius, radius + 1):
-                if dx*dx + dy*dy <= radius*radius:
-                    sdl2.SDL_SetRenderDrawColor(self.renderer, r, g, b, a)
-                    sdl2.SDL_RenderDrawPoint(self.renderer, x + dx, y + dy)
+            dx_max = int((r_squared - dy * dy) ** 0.5)
+            for dx in range(-dx_max, dx_max + 1):
+                sdl2.SDL_SetRenderDrawColor(self.renderer, color.r, color.g, color.b, 255)
+                pos_x = x + dx
+                pos_y = y + dy
+                
+                # Draw only if in bounds
+                if 0 <= pos_x < surface.contents.w and 0 <= pos_y < surface.contents.h:
+                    pixel_offset = pos_y * surface.contents.pitch + pos_x * 4
+                    ctypes.memmove(
+                        surface.contents.pixels + pixel_offset, 
+                        ctypes.byref(ctypes.c_uint32(color_val)), 
+                        4
+                    )
     
-    def _init_bitmap_font(self) -> None:
-        """Initialize a simple bitmap font for efficient text rendering."""
-        # Create character maps for different font sizes
-        self.char_maps = {}
-        
-        # Define character set (basic ASCII)
-        chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:,.-_+*()[]{}|/\\%$#@!? "
-        
-        # Generate bitmap textures for each font size
-        for size_name, pixel_size in [
-            ("small", self.small_font_size),
-            ("medium", self.text_font_size),
-            ("large", self.title_font_size)
-        ]:
-            char_width = pixel_size // 2
-            char_height = pixel_size
-            
-            # Create a map to store character textures
-            self.char_maps[size_name] = {}
-            
-            # For each character, create a texture
-            for char in chars:
-                # Create a surface for this character
-                surface = sdl2.SDL_CreateRGBSurface(
-                    0, char_width, char_height, 32,
-                    0xFF000000, 0x00FF0000, 0x0000FF00, 0x000000FF
-                )
-                
-                # Fill with black (transparent background)
-                sdl2.SDL_FillRect(
-                    surface, None, 
-                    sdl2.SDL_MapRGBA(surface.contents.format, 0, 0, 0, 0)
-                )
-                
-                # Draw the character (simulated bitmap font)
-                self._draw_character(surface, char, char_width, char_height)
-                
-                # Create texture from surface
-                texture = sdl2.SDL_CreateTextureFromSurface(self.renderer, surface)
-                
-                # Store in character map
-                self.char_maps[size_name][char] = {
-                    "texture": texture,
-                    "width": char_width,
-                    "height": char_height
-                }
-                
-                # Free the surface
-                sdl2.SDL_FreeSurface(surface)
-    
-    def _draw_character(self, surface, char: str, width: int, height: int) -> None:
-        """Draw a single character on a surface using primitive shapes."""
-        # Set white color for character pixels
-        pixel_color = sdl2.SDL_MapRGBA(surface.contents.format, 255, 255, 255, 255)
-        
-        # Simple bitmap representation of characters
-        # This is a very basic approach - each character is drawn with primitive rectangles
-        
-        # For this implementation, we'll use a simple dot matrix approach
-        # More sophisticated bitmap fonts would use pre-designed patterns
-        
-        # Draw a rectangle for most characters (simplified approach)
-        rect = sdl2.SDL_Rect(2, 2, width - 4, height - 4)
-        sdl2.SDL_FillRect(surface, rect, pixel_color)
-        
-        # Draw a hole in certain characters
-        if char in "ABDOPQRabdeopqg":
-            hole_rect = sdl2.SDL_Rect(
-                width // 3, height // 3, 
-                width // 3, height // 3
-            )
-            sdl2.SDL_FillRect(
-                surface, hole_rect, 
-                sdl2.SDL_MapRGBA(surface.contents.format, 0, 0, 0, 0)
-            )
-    
-    def render_text(self, text: str, size_name: str, x: int, y: int, color: sdl2.ext.Color) -> None:
+    def render_text(self, text: str, font_type: str, x: int, y: int, color: sdl2.ext.Color) -> None:
         """
-        Render text at the given position using the bitmap font.
+        Render text using SDL_ttf for proper font rendering.
         
         Args:
-            text: The text to render
-            size_name: Font size name ("small", "medium", or "large")
-            x: X-coordinate for the text
-            y: Y-coordinate for the text
+            text: Text to render
+            font_type: Font type ("title", "text", or "small")
+            x: X position
+            y: Y position
             color: Text color
         """
-        if size_name not in self.char_maps:
+        # Select font based on type
+        if font_type == "title":
+            font = self.title_font
+        elif font_type == "text":
+            font = self.text_font
+        elif font_type == "small":
+            font = self.small_font
+        else:
             return
         
-        char_map = self.char_maps[size_name]
-        current_x = x
+        # Create SDL color
+        sdl_color = sdl2.SDL_Color(r=color.r, g=color.g, b=color.b, a=color.a)
         
-        # Set the color modulation for the text
-        for char in text:
-            if char in char_map:
-                char_data = char_map[char]
-                texture = char_data["texture"]
-                
-                # Set color modulation
-                sdl2.SDL_SetTextureColorMod(
-                    texture, color.r, color.g, color.b
-                )
-                
-                # Set alpha
-                sdl2.SDL_SetTextureAlphaMod(texture, color.a)
-                
-                # Render the character
-                dest_rect = sdl2.SDL_Rect(
-                    current_x, y, 
-                    char_data["width"], char_data["height"]
-                )
-                sdl2.SDL_RenderCopy(self.renderer, texture, None, dest_rect)
-                
-                # Move to the next character position
-                current_x += char_data["width"]
-            elif char == '\n':
-                # Handle newline characters
-                current_x = x
-                y += char_map[' ']["height"] + 2
-            else:
-                # For characters not in our map, use a space
-                current_x += char_map[' ']["width"]
+        # Render text to surface (solid rendering for better performance)
+        text_surface = sdl2.sdlttf.TTF_RenderText_Solid(
+            font, text.encode(), sdl_color
+        )
+        
+        if not text_surface:
+            return
+        
+        # Create texture from surface
+        text_texture = sdl2.SDL_CreateTextureFromSurface(self.renderer, text_surface)
+        
+        # Setup destination rectangle
+        text_rect = sdl2.SDL_Rect(
+            x=x, y=y,
+            w=text_surface.contents.w,
+            h=text_surface.contents.h
+        )
+        
+        # Render texture to screen
+        sdl2.SDL_RenderCopy(self.renderer, text_texture, None, text_rect)
+        
+        # Free resources
+        sdl2.SDL_FreeSurface(text_surface)
+        sdl2.SDL_DestroyTexture(text_texture)
+    
+    def cleanup(self):
+        """Clean up resources to prevent memory leaks."""
+        # Close fonts
+        if hasattr(self, 'title_font') and self.title_font:
+            sdl2.sdlttf.TTF_CloseFont(self.title_font)
+        
+        if hasattr(self, 'text_font') and self.text_font:
+            sdl2.sdlttf.TTF_CloseFont(self.text_font)
+        
+        if hasattr(self, 'small_font') and self.small_font:
+            sdl2.sdlttf.TTF_CloseFont(self.small_font)
+        
+        # Clean up TTF subsystem
+        sdl2.sdlttf.TTF_Quit()
 
 
 class UINode:
@@ -295,7 +304,9 @@ class UINode:
         self.config = load_config(config_path) if config_path else {}
         
         # Initialize SDL2
-        sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO)
+        if sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO) != 0:
+            logger.error(f"SDL initialization error: {sdl2.SDL_GetError().decode()}")
+            sys.exit(1)
         
         # Get display info
         display_mode = sdl2.SDL_DisplayMode()
@@ -304,7 +315,7 @@ class UINode:
         # Default UI settings
         self.width = self.config.get("ui", {}).get("width", display_mode.w)
         self.height = self.config.get("ui", {}).get("height", display_mode.h)
-        self.fps = self.config.get("ui", {}).get("fps", 30)  # Reduced FPS target for better performance
+        self.fps = self.config.get("ui", {}).get("fps", 30)
         self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
         
         logger.info(f"Display resolution: {self.width}x{self.height}")
@@ -314,16 +325,33 @@ class UINode:
         self.state.show_debug = True
         
         # Create window and renderer with hardware acceleration
-        flags = sdl2.SDL_WINDOW_FULLSCREEN if self.fullscreen else 0
-        self.window = sdl2.SDL_CreateWindow(b"Reactive Companion",
-                                          sdl2.SDL_WINDOWPOS_CENTERED,
-                                          sdl2.SDL_WINDOWPOS_CENTERED,
-                                          self.width, self.height, flags)
+        flags = sdl2.SDL_WINDOW_FULLSCREEN_DESKTOP if self.fullscreen else 0
+        self.window = sdl2.SDL_CreateWindow(
+            b"Reactive Companion",
+            sdl2.SDL_WINDOWPOS_CENTERED,
+            sdl2.SDL_WINDOWPOS_CENTERED,
+            self.width, self.height, flags
+        )
         
+        if not self.window:
+            logger.error(f"Window creation error: {sdl2.SDL_GetError().decode()}")
+            sys.exit(1)
+        
+        # Get actual window size (in case of fullscreen)
+        window_surface = sdl2.SDL_GetWindowSurface(self.window)
+        if window_surface:
+            self.width = window_surface.contents.w
+            self.height = window_surface.contents.h
+        
+        # Create renderer with vsync for smooth animation
         self.renderer = sdl2.SDL_CreateRenderer(
             self.window, -1, 
             sdl2.SDL_RENDERER_ACCELERATED | sdl2.SDL_RENDERER_PRESENTVSYNC
         )
+        
+        if not self.renderer:
+            logger.error(f"Renderer creation error: {sdl2.SDL_GetError().decode()}")
+            sys.exit(1)
         
         # Define panel dimensions
         self.top_panel_height = self.height // 2
@@ -372,9 +400,21 @@ class UINode:
         """Stop the UI node and clean up resources."""
         self.is_running = False
         
+        # Stop monitoring thread
+        if hasattr(self, 'monitor'):
+            self.monitor.running = False
+        
+        # Clean up assets
+        if hasattr(self, 'assets'):
+            self.assets.cleanup()
+        
         # Clean up SDL2
-        sdl2.SDL_DestroyRenderer(self.renderer)
-        sdl2.SDL_DestroyWindow(self.window)
+        if hasattr(self, 'renderer') and self.renderer:
+            sdl2.SDL_DestroyRenderer(self.renderer)
+        
+        if hasattr(self, 'window') and self.window:
+            sdl2.SDL_DestroyWindow(self.window)
+        
         sdl2.SDL_Quit()
         
         logger.info("UI node stopped")
@@ -441,7 +481,7 @@ class UINode:
                 elif event.key.keysym.sym == sdl2.SDLK_f:
                     # Toggle fullscreen
                     self.fullscreen = not self.fullscreen
-                    flags = sdl2.SDL_WINDOW_FULLSCREEN if self.fullscreen else 0
+                    flags = sdl2.SDL_WINDOW_FULLSCREEN_DESKTOP if self.fullscreen else 0
                     sdl2.SDL_SetWindowFullscreen(self.window, flags)
     
     def _check_messages(self) -> None:
@@ -457,19 +497,20 @@ class UINode:
         self.current_frame = (self.current_frame + 1) % len(self.assets.animation_frames)
     
     def _render_top_panel(self) -> None:
-        """Render the top panel with animation."""
+        """Render the top panel with pulsating red circle."""
         # Get current animation frame
         animation_frame = self.assets.animation_frames[self.current_frame]
         
         # Center the animation in the top panel
-        sdl2.SDL_RenderCopy(
-            self.renderer, animation_frame, None, 
-            sdl2.SDL_Rect(
-                (self.width - self.assets.animation_size) // 2, 
-                (self.top_panel_height - self.assets.animation_size) // 2, 
-                self.assets.animation_size, self.assets.animation_size
-            )
+        dest_rect = sdl2.SDL_Rect(
+            (self.width - self.assets.animation_size) // 2,
+            (self.top_panel_height - self.assets.animation_size) // 2,
+            self.assets.animation_size,
+            self.assets.animation_size
         )
+        
+        # Render the animation frame
+        sdl2.SDL_RenderCopy(self.renderer, animation_frame, None, dest_rect)
     
     def _render_bottom_panel(self) -> None:
         """Render the bottom panel with information."""
@@ -491,7 +532,7 @@ class UINode:
         # Render mode text
         self.assets.render_text(
             f"Mode: {mode.name}",
-            "large",
+            "title",
             20, 
             panel_y + 20,
             WHITE
@@ -504,13 +545,13 @@ class UINode:
         status_info = [
             f"System Status: Online",
             f"Last Update: {time.strftime('%H:%M:%S')}",
-            f"Uptime: {int(time.time() - self.last_frame_time)} seconds"
+            f"Temperature: {self.monitor.temperature:.1f}°C"
         ]
         
         for info in status_info:
             self.assets.render_text(
                 info,
-                "medium",
+                "text",
                 20,
                 y_pos,
                 LIGHT_GRAY
@@ -522,41 +563,41 @@ class UINode:
         if not self.state.show_debug:
             return
         
-        # Get temperature from background monitor
-        temp = self.monitor.temperature
-        
         # Debug information
         debug_info = [
             f"FPS: {self.state.fps}",
             f"CPU: {self.monitor.cpu_usage:.1f}%",
             f"MEM: {self.monitor.memory_usage:.1f}MB",
-            f"TEMP: {temp:.1f}C",
+            f"TEMP: {self.monitor.temperature:.1f}°C",
             f"Resolution: {self.width}x{self.height}"
         ]
         
-        # Calculate position (bottom-right corner)
-        longest_text = max(debug_info, key=len)
-        text_width = len(longest_text) * (self.assets.small_font_size // 2)
+        # Draw semi-transparent background (right-aligned)
+        bg_width = 180
+        bg_height = (len(debug_info) * (self.assets.small_font_size + 5)) + 10
         
-        # Draw semi-transparent background
         bg_rect = sdl2.SDL_Rect(
-            self.width - text_width - 30,
-            self.height - (len(debug_info) * (self.assets.small_font_size + 5)) - 20,
-            text_width + 20,
-            (len(debug_info) * (self.assets.small_font_size + 5)) + 10
+            self.width - bg_width - 10,
+            self.height - bg_height - 10,
+            bg_width,
+            bg_height
         )
         
         # Set semi-transparent black
         sdl2.SDL_SetRenderDrawColor(self.renderer, 0, 0, 0, 180)
         sdl2.SDL_RenderFillRect(self.renderer, bg_rect)
         
+        # Draw border
+        sdl2.SDL_SetRenderDrawColor(self.renderer, GRAY.r, GRAY.g, GRAY.b, GRAY.a)
+        sdl2.SDL_RenderDrawRect(self.renderer, bg_rect)
+        
         # Render each line of debug info
         for i, info in enumerate(debug_info):
             self.assets.render_text(
                 info,
                 "small",
-                self.width - text_width - 20,
-                self.height - (len(debug_info) - i) * (self.assets.small_font_size + 5),
+                self.width - bg_width,
+                self.height - bg_height + (i * (self.assets.small_font_size + 5)) + 5,
                 LIGHT_GRAY
             )
 
