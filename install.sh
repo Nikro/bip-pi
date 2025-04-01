@@ -37,7 +37,7 @@ sudo apt install -y --no-install-recommends \
   zenity xterm \
   || echo "Warning: Some packages may have failed to install, continuing anyway"
 
-# Install audio, SDL, and graphics dependencies required for PyAudio and Pygame
+# Install audio, PyGame, and graphics dependencies
 separator "Installing audio and graphics dependencies..."
 sudo apt install -y \
   portaudio19-dev libasound2-dev libportaudio2 \
@@ -325,7 +325,7 @@ if command -v poetry &>/dev/null; then
         fi
         
         echo "==> Installing core dependencies directly with pip as fallback..."
-        pip install -U pyzmq numpy psutil pydantic python-dotenv pysdl2
+        pip install -U pyzmq numpy psutil pydantic python-dotenv pygame
         # Note: PyAudio and Pygame should already be installed from the pre-install step
     fi
 else
@@ -333,7 +333,7 @@ else
     echo "==> This is critical as Poetry 2.1.2+ is required for managing project dependencies."
     echo "==> The fallback installation with pip might not include all required dependencies."
     echo "==> Installing core dependencies directly with pip as emergency fallback..."
-    pip install -U pyzmq pygame pyaudio numpy psutil pydantic python-dotenv pysdl2
+    pip install -U pyzmq pygame pyaudio numpy psutil pydantic python-dotenv
 fi
 
 ###############################################################################

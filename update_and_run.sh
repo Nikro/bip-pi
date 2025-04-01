@@ -29,16 +29,16 @@ if [ ! -f "${SCRIPT_DIR}/.first_run_complete" ]; then
         log_message "INFO" "Installing required development libraries..."
         sudo apt-get install -y libffi-dev build-essential python3-dev
         
-        # Install SDL2 Python bindings for better performance
-        log_message "INFO" "Installing PySDL2 for improved performance..."
+        # Install PyGame for better performance
+        log_message "INFO" "Installing PyGame for improved performance..."
         
         if [ -f ".venv/bin/activate" ]; then
             source .venv/bin/activate
-            pip install pysdl2 pysdl2-dll
+            pip install pygame
         elif command -v poetry &>/dev/null; then
-            poetry add pysdl2 pysdl2-dll
+            poetry add pygame
         else
-            log_message "WARNING" "Neither virtual environment nor Poetry found. Cannot install PySDL2."
+            log_message "WARNING" "Neither virtual environment nor Poetry found. Cannot install PyGame."
         fi
         
         # Create marker file to avoid repeating this step
@@ -107,29 +107,26 @@ detect_hardware_acceleration() {
     if command -v glxinfo &>/dev/null; then
         if glxinfo | grep -i "direct rendering: yes" > /dev/null; then
             log_message "INFO" "OpenGL hardware acceleration available"
-            export SDL_VIDEODRIVER=x11
-            export SDL_OPENGL=1
+            export PYGAME_DISPLAY=:0
+            export PYGAME_HWSURFACE=1
+            export PYGAME_DOUBLEBUF=1
             return 0
         fi
     fi
     
     # No hardware acceleration detected, use software rendering
     log_message "WARNING" "No hardware acceleration detected, using software rendering"
-    export SDL_VIDEODRIVER=x11
-    export SDL_RENDER_DRIVER=software
+    export PYGAME_DISPLAY=:0
+    export PYGAME_HWSURFACE=0
     return 1
 }
 
 # Detect and configure hardware acceleration
 detect_hardware_acceleration
 
-# Set SDL-specific optimizations for resource-constrained systems
-log_message "INFO" "Configuring SDL for optimal performance on embedded systems"
-export SDL_HINT_RENDER_SCALE_QUALITY=0  # Use nearest pixel sampling (fastest)
-export SDL_HINT_RENDER_VSYNC=0          # Disable vsync for better performance
-export SDL_HINT_RENDER_BATCHING=1       # Enable batching for fewer draw calls
-export SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0  # Don't minimize when focus is lost
-export SDL_HINT_FRAMEBUFFER_ACCELERATION=1     # Try to use acceleration when possible
+# Set PyGame-specific optimizations for resource-constrained systems
+log_message "INFO" "Configuring PyGame for optimal performance on embedded systems"
+export PYGAME_HIDE_SUPPORT_PROMPT=1  # Hide pygame welcome message
 
 # Check for limited resources and set additional performance flags
 if [ -f "/proc/cpuinfo" ]; then
@@ -137,13 +134,7 @@ if [ -f "/proc/cpuinfo" ]; then
     
     if [ "$CPU_CORES" -le 2 ]; then
         log_message "INFO" "Limited CPU resources detected, enabling additional performance optimizations"
-        export PYGAME_HIDE_SUPPORT_PROMPT=1
-        export SDL_HINT_RENDER_LINE_METHOD=1   # Faster line drawing 
-        export SDL_HINT_VIDEO_ALLOW_SCREENSAVER=0  # Don't allow screensaver
-        
-        # Force double buffering instead of triple buffering to reduce memory usage
-        export SDL_HINT_RENDER_DRIVER=opengl
-        export SDL_HINT_OPENGL_DOUBLEBUFFER=1
+        export PYGAME_BLEND_ALPHA_SDL2=1  # Use SDL2's alpha blending (faster)
     fi
 fi
 

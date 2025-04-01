@@ -1,13 +1,13 @@
-.PHONY: install test lint format update clean run-ui run-awareness run-brains sdl-setup
+.PHONY: install test lint format update clean run-ui run-awareness run-brains pygame-setup
 
 # Installation and setup
 install:
     poetry install
 
-# SDL2 setup specific for the UI component
-sdl-setup:
-    pip install pysdl2 pysdl2-dll
-    @echo "SDL2 Python bindings installed successfully"
+# PyGame setup specific for the UI component
+pygame-setup:
+    pip install pygame
+    @echo "PyGame installed successfully"
 
 # Testing
 test:
@@ -23,7 +23,7 @@ format:
     poetry run isort src tests
 
 # Update system
-update: install sdl-setup
+update: install pygame-setup
     @echo "System updated successfully"
 
 # Running components
