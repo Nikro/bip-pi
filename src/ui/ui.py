@@ -31,15 +31,32 @@ from ..common import (
 )
 from .state import UIState, SystemMode, global_state
 
-# Setup logger
+# Setup logger with proper path handling
 logger = setup_logger("ui")
-# Add file handler to log UI events so you can fetch logs later.
+
+# Add file handler to log UI events using a path relative to the script location
 import logging
-file_handler = logging.FileHandler("/var/www/bip-pi/logs/ui.log")
-file_handler.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
+import os
+
+# Get the actual script directory rather than using hardcoded path
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+LOG_DIR = os.path.join(SCRIPT_DIR, "logs")
+
+# Ensure log directory exists
+try:
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
+    
+    # Now create the file handler with the correct path
+    file_handler = logging.FileHandler(os.path.join(LOG_DIR, "ui.log"))
+    file_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.info(f"UI logger initialized. Logging to: {os.path.join(LOG_DIR, 'ui.log')}")
+except Exception as e:
+    print(f"WARNING: Could not set up file logging: {e}")
+    print(f"Continuing with console logging only")
 
 # Define colors
 BLACK = (0, 0, 0)
