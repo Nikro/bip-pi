@@ -1,8 +1,9 @@
 {
   "ui": {
-    "width": 1080,
-    "height": 1920,
+    "width": 1050,
+    "height": 1680,
     "fps": 60,
-    "fullscreen": true
+    "fullscreen": true,
+    "scale_factor": 0.57
   }
 }

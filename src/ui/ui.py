@@ -35,6 +35,10 @@ RED = (255, 0, 0)
 FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 MONO_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 
+# Default resolution scaling factor (original is 1050x1680)
+# Target around 600 width while maintaining aspect ratio
+DEFAULT_SCALE_FACTOR = 0.57  # ~600/1050
+
 
 class BackgroundMonitor(threading.Thread):
     """Background thread for system monitoring tasks."""
@@ -101,7 +105,7 @@ class UIAssets:
         self.screen_width = screen_width
         self.screen_height = screen_height
         
-        # Calculate dimensions for animation panel - much smaller circle (10x smaller)
+        # Calculate dimensions for animation panel - much smaller circle
         self.animation_size = min(screen_width, screen_height // 2) // 5
         
         # Load fonts with appropriate sizes
@@ -119,7 +123,7 @@ class UIAssets:
             logger.error(f"Error loading fonts: {e}")
             self._fallback_font_init()
             
-        # Pre-render animation frames (efficient as requested)
+        # Pre-render animation frames using pygame.Surface for better performance
         self.animation_frames = self._create_animation_frames(RED, 10)
     
     def _fallback_font_init(self):
@@ -130,27 +134,46 @@ class UIAssets:
         self.small_font = pygame.font.SysFont("monospace", self.small_font_size)
     
     def _create_animation_frames(self, color, num_frames):
-        """Pre-render animation frames for better performance with more subtle animation."""
+        """
+        Pre-render animation frames using surfaces with pre-drawn circles.
+        
+        This method creates and caches all animation frames in memory,
+        which is much more efficient than redrawing vectors every frame.
+        """
         frames = []
         animation_size = self.animation_size
+        
+        # Try to import pygame.gfxdraw for better circle rendering if available
+        try:
+            import pygame.gfxdraw
+            use_gfxdraw = True
+        except ImportError:
+            use_gfxdraw = False
         
         for i in range(num_frames):
             # Calculate even more subtle pulse factor (0.92 to 1.0 for very subtle animation)
             pulse_factor = 0.92 + 0.08 * abs(num_frames/2 - i) / (num_frames/2)
             
-            # Create surface for this frame (with solid background)
-            surface = pygame.Surface((animation_size, animation_size))
-            surface.fill(BLACK)  # Solid black background
+            # Create surface for this frame with solid background and pixel alpha
+            surface = pygame.Surface((animation_size, animation_size), flags=pygame.SRCALPHA)
+            surface.fill((0, 0, 0, 0))  # Transparent background
             
             # Calculate circle parameters
             radius = int(animation_size // 2.5 * pulse_factor)
             center_x = animation_size // 2
             center_y = animation_size // 2
             
-            # Draw filled circle
-            pygame.draw.circle(surface, color, (center_x, center_y), radius)
+            # Draw filled circle using the most efficient method available
+            if use_gfxdraw:
+                # Use gfxdraw for smoother circles
+                pygame.gfxdraw.filled_circle(
+                    surface, center_x, center_y, radius, color
+                )
+            else:
+                # Fall back to standard pygame drawing
+                pygame.draw.circle(surface, color, (center_x, center_y), radius)
             
-            # Store the surface
+            # Store the pre-rendered surface
             frames.append(surface)
         
         return frames
@@ -202,31 +225,51 @@ class UINode:
         pygame.display.init()
         info = pygame.display.Info()
         
-        # Default UI settings
-        self.width = self.config.get("ui", {}).get("width", info.current_w)
-        self.height = self.config.get("ui", {}).get("height", info.current_h)
+        # Use configured resolution values as the base resolution
+        base_width = self.config.get("ui", {}).get("width", 1050)  # Default to actual width
+        base_height = self.config.get("ui", {}).get("height", 1680)  # Default to actual height
+        
+        # Apply scaling factor to the base resolution
+        scale_factor = self.config.get("ui", {}).get("scale_factor", DEFAULT_SCALE_FACTOR)
+        self.width = int(base_width * scale_factor)
+        self.height = int(base_height * scale_factor)
+        
+        # Additional UI settings
         self.fps = self.config.get("ui", {}).get("fps", 30)
         self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
         
-        logger.info(f"Display resolution: {self.width}x{self.height}")
-        
-        # Initialize state
-        self.state = global_state
-        self.state.show_debug = True
+        logger.info(f"Base resolution: {base_width}x{base_height}")
+        logger.info(f"Scaled resolution: {self.width}x{self.height}")
         
         # Create window with hardware acceleration
-        flags = pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF if self.fullscreen else pygame.HWSURFACE | pygame.DOUBLEBUF
-        self.screen = pygame.display.set_mode((self.width, self.height), flags)
-        pygame.display.set_caption("Reactive Companion")
+        # If in fullscreen mode, use the current display resolution
+        # Otherwise use our calculated scaled resolution
+        if self.fullscreen:
+            flags = pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF
+            self.screen = pygame.display.set_mode((0, 0), flags)  # (0,0) means use current resolution
+            
+            # Get the actual display size when in fullscreen
+            self.width, self.height = self.screen.get_size()
+            logger.info(f"Fullscreen display resolution: {self.width}x{self.height}")
+        else:
+            flags = pygame.HWSURFACE | pygame.DOUBLEBUF
+            self.screen = pygame.display.set_mode((self.width, self.height), flags)
         
-        # Get actual window size (in case of fullscreen)
-        self.width, self.height = self.screen.get_size()
+        pygame.display.set_caption("Reactive Companion")
         
         # Create subsurfaces for partial updates
         self.top_panel_height = self.height // 2
         self.top_surface = self.screen.subsurface((0, 0, self.width, self.top_panel_height))
         self.bottom_surface = self.screen.subsurface((0, self.top_panel_height, 
                                                      self.width, self.height - self.top_panel_height))
+        
+        # Create cached background for top panel to avoid redrawing
+        self.top_bg = pygame.Surface((self.width, self.top_panel_height))
+        self.top_bg.fill(BLACK)
+        
+        # Initialize state
+        self.state = global_state
+        self.state.show_debug = True
         
         # Load assets
         self.assets = UIAssets(self.width, self.height)
