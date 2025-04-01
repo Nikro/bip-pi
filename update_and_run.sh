@@ -123,15 +123,27 @@ detect_hardware_acceleration() {
 # Detect and configure hardware acceleration
 detect_hardware_acceleration
 
-# Check for limited resources and set performance flags
+# Set SDL-specific optimizations for resource-constrained systems
+log_message "INFO" "Configuring SDL for optimal performance on embedded systems"
+export SDL_HINT_RENDER_SCALE_QUALITY=0  # Use nearest pixel sampling (fastest)
+export SDL_HINT_RENDER_VSYNC=0          # Disable vsync for better performance
+export SDL_HINT_RENDER_BATCHING=1       # Enable batching for fewer draw calls
+export SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0  # Don't minimize when focus is lost
+export SDL_HINT_FRAMEBUFFER_ACCELERATION=1     # Try to use acceleration when possible
+
+# Check for limited resources and set additional performance flags
 if [ -f "/proc/cpuinfo" ]; then
     CPU_CORES=$(grep -c "processor" /proc/cpuinfo)
     
     if [ "$CPU_CORES" -le 2 ]; then
-        log_message "INFO" "Limited CPU resources detected, enabling performance optimizations"
+        log_message "INFO" "Limited CPU resources detected, enabling additional performance optimizations"
         export PYGAME_HIDE_SUPPORT_PROMPT=1
-        export SDL_HINT_RENDER_SCALE_QUALITY=0  # Fastest/lowest quality
-        export SDL_HINT_RENDER_VSYNC=0          # Disable vsync if struggling with performance
+        export SDL_HINT_RENDER_LINE_METHOD=1   # Faster line drawing 
+        export SDL_HINT_VIDEO_ALLOW_SCREENSAVER=0  # Don't allow screensaver
+        
+        # Force double buffering instead of triple buffering to reduce memory usage
+        export SDL_HINT_RENDER_DRIVER=opengl
+        export SDL_HINT_OPENGL_DOUBLEBUFFER=1
     fi
 fi
 
