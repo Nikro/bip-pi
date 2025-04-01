@@ -2,7 +2,7 @@
   "ui": {
     "width": 1050,
     "height": 1680,
-    "fps": 60,
+    "fps": 30,
     "fullscreen": true,
     "double_buffer": true,
     "vsync": true,

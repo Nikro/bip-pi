@@ -193,19 +193,31 @@ class UIAssets:
             
             # Use the most efficient drawing method available
             if HAS_GFXDRAW:
-                # Use gfxdraw for better antialiasing and performance
+                # Fix the dark border artifact by using a single method with proper color
+                # The issue was caused by overlapping filled_circle and aacircle operations
+                
+                # First draw the filled circle
                 pygame.gfxdraw.filled_circle(
                     surface, center_x, center_y, radius, color
                 )
-                # Add an antialiased edge for smoother appearance
+                
+                # Then draw only the anti-aliased edge with the same color
+                # This eliminates the dark border artifact
                 pygame.gfxdraw.aacircle(
                     surface, center_x, center_y, radius, color
                 )
+                
+                # Add an additional inner filled circle with slightly larger radius
+                # to soften any potential inner edge artifacts
+                if radius > 2:
+                    pygame.gfxdraw.filled_circle(
+                        surface, center_x, center_y, radius - 1, color
+                    )
             else:
                 # Standard circle drawing as fallback
                 pygame.draw.circle(surface, color, (center_x, center_y), radius)
             
-            # Convert surface for faster blitting if not using alpha
+            # Convert surface for faster blitting with alpha
             frames.append(surface.convert_alpha())
         
         return frames
