@@ -207,12 +207,6 @@ class UIAssets:
                     surface, center_x, center_y, radius, color
                 )
                 
-                # Add an additional inner filled circle with slightly larger radius
-                # to soften any potential inner edge artifacts
-                if radius > 2:
-                    pygame.gfxdraw.filled_circle(
-                        surface, center_x, center_y, radius - 1, color
-                    )
             else:
                 # Standard circle drawing as fallback
                 pygame.draw.circle(surface, color, (center_x, center_y), radius)
