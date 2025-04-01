@@ -6,7 +6,10 @@ SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 REQUIRED_FILES=(".env" "config/ui_config.json" "config/awareness_config.json" "config/brains_config.json")
 MISSING_FILES=()
 ERROR_LOG="${SCRIPT_DIR}/logs/startup_errors.log"
-PYGAME_DETECT_AVX2=1
+
+# Set PyGame optimization flags before any Python scripts are run
+export PYGAME_DETECT_AVX2=1
+export PYGAME_HIDE_SUPPORT_PROMPT=1
 
 # Create logs directory if it doesn't exist
 mkdir -p "${SCRIPT_DIR}/logs"
@@ -30,12 +33,12 @@ if [ ! -f "${SCRIPT_DIR}/.first_run_complete" ]; then
         log_message "INFO" "Installing required development libraries..."
         sudo apt-get install -y libffi-dev build-essential python3-dev
         
-        # Install PyGame for better performance
+        # Install PyGame for better performance - make sure to use the system version
         log_message "INFO" "Installing PyGame for improved performance..."
         
         if [ -f ".venv/bin/activate" ]; then
             source .venv/bin/activate
-            pip install pygame
+            pip install --upgrade pygame
         elif command -v poetry &>/dev/null; then
             poetry add pygame
         else
@@ -127,7 +130,6 @@ detect_hardware_acceleration
 
 # Set PyGame-specific optimizations for resource-constrained systems
 log_message "INFO" "Configuring PyGame for optimal performance on embedded systems"
-export PYGAME_HIDE_SUPPORT_PROMPT=1  # Hide pygame welcome message
 
 # Check for limited resources and set additional performance flags
 if [ -f "/proc/cpuinfo" ]; then

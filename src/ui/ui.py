@@ -12,7 +12,18 @@ import time
 import threading
 from typing import Dict, Any, List, Tuple, Optional
 
-import pygame
+# Import PyGame at the module level - add error checking
+try:
+    import pygame
+    from pygame import FULLSCREEN, HWSURFACE, DOUBLEBUF, SRCALPHA
+    HAS_PYGAME = True
+except ImportError as e:
+    print(f"ERROR: Failed to import PyGame: {e}")
+    print("Please make sure PyGame is installed correctly:")
+    print("  pip install pygame")
+    HAS_PYGAME = False
+    # Define fallbacks to avoid NameError if import fails
+    FULLSCREEN, HWSURFACE, DOUBLEBUF, SRCALPHA = 0x1, 0x2, 0x4, 0x8
 
 from ..common import (
     setup_logger, PublisherBase, SubscriberBase, RequestorBase,
@@ -154,7 +165,7 @@ class UIAssets:
             pulse_factor = 0.92 + 0.08 * abs(num_frames/2 - i) / (num_frames/2)
             
             # Create surface for this frame with solid background and pixel alpha
-            surface = pygame.Surface((animation_size, animation_size), flags=pygame.SRCALPHA)
+            surface = pygame.Surface((animation_size, animation_size), flags=SRCALPHA)
             surface.fill((0, 0, 0, 0))  # Transparent background
             
             # Calculate circle parameters
@@ -214,6 +225,11 @@ class UINode:
     
     def __init__(self, config_path: Optional[str] = None):
         """Initialize the optimized UI node."""
+        # First, ensure PyGame is available
+        if not HAS_PYGAME:
+            logger.error("PyGame is not available. Cannot initialize UI.")
+            raise ImportError("PyGame module is required but not installed.")
+            
         # Load configuration
         self.config = load_config(config_path) if config_path else {}
         
@@ -233,6 +249,10 @@ class UINode:
         target_width = int(base_width * scale_factor)
         target_height = int(base_height * scale_factor)
         
+        # Store dimensions as instance variables
+        self.width = target_width
+        self.height = target_height
+        
         # Additional UI settings
         self.fps = self.config.get("ui", {}).get("fps", 30)
         self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
@@ -244,10 +264,10 @@ class UINode:
         # Force the scaled resolution even in fullscreen mode
         if self.fullscreen:
             # Use scaled resolution with fullscreen flag
-            flags = pygame.FULLSCREEN | pygame.HWSURFACE
+            flags = FULLSCREEN | HWSURFACE
             self.screen = pygame.display.set_mode((target_width, target_height), flags)
         else:
-            flags = pygame.HWSURFACE | pygame.DOUBLEBUF
+            flags = HWSURFACE | DOUBLEBUF
             self.screen = pygame.display.set_mode((target_width, target_height), flags)
         
         pygame.display.set_caption("Reactive Companion")
@@ -417,7 +437,7 @@ class UINode:
                 elif event.key == pygame.K_f:
                     # Toggle fullscreen
                     self.fullscreen = not self.fullscreen
-                    flags = pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF if self.fullscreen else pygame.HWSURFACE | pygame.DOUBLEBUF
+                    flags = FULLSCREEN | HWSURFACE | DOUBLEBUF if self.fullscreen else HWSURFACE | DOUBLEBUF
                     self.screen = pygame.display.set_mode((self.width, self.height), flags)
                     
                     # Recreate subsurfaces after display mode change
@@ -583,13 +603,27 @@ class UINode:
 
 def main() -> None:
     """Main entry point for the UI node."""
-    parser = argparse.ArgumentParser(description="UI Node")
-    parser.add_argument("--config", type=str, help="Path to configuration file")
-    args = parser.parse_args()
-    
-    # Create and start the UI node
-    node = UINode(args.config)
-    node.start()
+    try:
+        # Check for PyGame availability before proceeding
+        if not HAS_PYGAME:
+            print("ERROR: PyGame is not available. Cannot start UI.")
+            sys.exit(1)
+
+        parser = argparse.ArgumentParser(description="UI Node")
+        parser.add_argument("--config", type=str, help="Path to configuration file")
+        args = parser.parse_args()
+        
+        # Create and start the UI node
+        node = UINode(args.config)
+        node.start()
+    except ImportError as e:
+        print(f"ERROR: Required module not available: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: Failed to start UI: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
