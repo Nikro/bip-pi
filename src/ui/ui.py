@@ -417,6 +417,8 @@ class UINode:
         self.current_frame = 0
         self.frame_count = 0
         self.bottom_update_counter = 0
+        self.animation_update_counter = 0  # Counter to control animation speed
+        self.animation_update_rate = 5     # Only update animation every N frames
         self.last_frame_time = time.time()
         self.frame_time_buffer = []  # For calculating moving average FPS
         self.last_blit_rects = []    # Track areas for incremental updates
@@ -431,6 +433,7 @@ class UINode:
             "last_blit_time": 0.0,
             "last_surface_time": 0.0,
             "dirty_rects_count": 0,
+            "animation_speed": f"1/{self.animation_update_rate}",  # Show animation speed in debug
         }
         
         # Calculate animation cache size
@@ -590,6 +593,19 @@ class UINode:
                     # Recreate subsurfaces after display mode change
                     self._create_panel_surfaces()
                     self.debug_metrics["fullscreen_mode"] = self.fullscreen
+                
+                elif event.key == pygame.K_UP:
+                    # Speed up animation
+                    if self.animation_update_rate > 1:
+                        self.animation_update_rate -= 1
+                        self.debug_metrics["animation_speed"] = f"1/{self.animation_update_rate}"
+                        logger.info(f"Animation speed increased: {self.debug_metrics['animation_speed']}")
+                
+                elif event.key == pygame.K_DOWN:
+                    # Slow down animation
+                    self.animation_update_rate += 1
+                    self.debug_metrics["animation_speed"] = f"1/{self.animation_update_rate}"
+                    logger.info(f"Animation speed decreased: {self.debug_metrics['animation_speed']}")
     
     def _check_messages(self) -> None:
         """Check for messages from other nodes with minimal blocking."""
@@ -599,8 +615,19 @@ class UINode:
             self.state.update_from_message(message)
     
     def _update_animation(self) -> None:
-        """Update animation state."""
-        self.current_frame = (self.current_frame + 1) % len(self.assets.animation_frames)
+        """
+        Update animation state at a controlled rate.
+        
+        This slows down the animation by only advancing frames
+        every N game frames, where N is animation_update_rate.
+        """
+        # Increment the counter
+        self.animation_update_counter += 1
+        
+        # Only update animation frame when counter reaches update rate
+        if self.animation_update_counter >= self.animation_update_rate:
+            self.current_frame = (self.current_frame + 1) % len(self.assets.animation_frames)
+            self.animation_update_counter = 0
     
     def _render_top_panel(self, dirty_rects: List[pygame.Rect]) -> None:
         """
@@ -753,7 +780,7 @@ class UINode:
             f"RECTS: {self.debug_metrics['dirty_rects_count']}",
             f"CACHE: {self.debug_metrics['animation_cache_size']:.1f}KB",
             f"GFXDRAW: {'Yes' if self.debug_metrics['using_gfxdraw'] else 'No'}",
-            f"ANIM: {self.current_frame+1}/{len(self.assets.animation_frames)}",
+            f"ANIM: {self.current_frame+1}/{len(self.assets.animation_frames)} ({self.debug_metrics['animation_speed']})",
             f"FULLSCREEN: {'Yes' if self.fullscreen else 'No'}"
         ]
         
