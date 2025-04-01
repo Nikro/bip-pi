@@ -295,7 +295,7 @@ class UINode:
         # Use configured exact resolution - no scaling
         self.width = self.config.get("ui", {}).get("width", 1050)
         self.height = self.config.get("ui", {}).get("height", 1680)
-        self.fps = self.config.get("ui", {}).get("fps", 60)
+        self.fps = self.config.get("ui", {}).get("fps", 30)
         self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
         self.vsync = self.config.get("ui", {}).get("vsync", True)
         self.use_hw_accel = self.config.get("ui", {}).get("use_hardware_acceleration", True)
