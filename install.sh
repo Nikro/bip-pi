@@ -131,7 +131,7 @@ separator "Creating Openbox autostart file with automatic updates..."
 mkdir -p "${HOME_DIR}/.config/openbox"
 cat <<EOF > "${HOME_DIR}/.config/openbox/autostart"
 # Start the reactive companion with auto-update in an xterm
-xterm -title "Reactive Companion" -geometry 100x30+0+0 -e "${PROJECT_DIR}/update_and_run.sh" &
+xterm -title "Reactive Companion" -geometry 100x30+0+0 -e "bash -c '${PROJECT_DIR}/update_and_run.sh >> ${PROJECT_DIR}/logs/update_and_run.log 2>&1'" &
 
 # Start system monitoring tools
 tint2 &

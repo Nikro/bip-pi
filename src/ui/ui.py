@@ -33,6 +33,13 @@ from .state import UIState, SystemMode, global_state
 
 # Setup logger
 logger = setup_logger("ui")
+# Add file handler to log UI events so you can fetch logs later.
+import logging
+file_handler = logging.FileHandler("/var/www/bip-pi/logs/ui.log")
+file_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 # Define colors
 BLACK = (0, 0, 0)
@@ -224,8 +231,8 @@ class UINode:
     """Main UI node class with optimizations for low-end hardware."""
     
     def __init__(self, config_path: Optional[str] = None):
-        """Initialize the optimized UI node."""
-        # First, ensure PyGame is available
+        """Initialize the optimized UI node using native resolution."""
+        # First, ensure PyGame is available.
         if not HAS_PYGAME:
             logger.error("PyGame is not available. Cannot initialize UI.")
             raise ImportError("PyGame module is required but not installed.")
@@ -235,35 +242,29 @@ class UINode:
         
         # Initialize PyGame
         pygame.init()
-        
-        # Get display info
         pygame.display.init()
         info = pygame.display.Info()
         
-        # Use configured resolution values as the base resolution
-        base_width = self.config.get("ui", {}).get("width", 1050)  # Default to 1050
-        base_height = self.config.get("ui", {}).get("height", 1680)  # Default to 1680
+        # Use configured native resolution values without scaling.
+        base_width = self.config.get("ui", {}).get("width", 1050)    # Native width
+        base_height = self.config.get("ui", {}).get("height", 1680)  # Native height
         
-        # Apply scaling factor to the base resolution
-        scale_factor = self.config.get("ui", {}).get("scale_factor", DEFAULT_SCALE_FACTOR)
-        target_width = int(base_width * scale_factor)
-        target_height = int(base_height * scale_factor)
+        target_width = base_width      # Use native width
+        target_height = base_height    # Use native height
         
-        # Store dimensions as instance variables
+        # Store dimensions as instance variables.
         self.width = target_width
         self.height = target_height
         
-        # Additional UI settings
+        # Additional UI settings.
         self.fps = self.config.get("ui", {}).get("fps", 30)
         self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
         
         logger.info(f"Base resolution: {base_width}x{base_height}")
-        logger.info(f"Target scaled resolution: {target_width}x{target_height}")
+        logger.info(f"Using native resolution: {target_width}x{target_height}")
         
-        # Create window with hardware acceleration
-        # Force the scaled resolution even in fullscreen mode
+        # Create window with hardware acceleration using native resolution.
         if self.fullscreen:
-            # Use scaled resolution with fullscreen flag
             flags = FULLSCREEN | HWSURFACE
             self.screen = pygame.display.set_mode((target_width, target_height), flags)
         else:
@@ -272,68 +273,67 @@ class UINode:
         
         pygame.display.set_caption("Reactive Companion")
         
-        # Create subsurfaces for partial updates
+        # Create subsurfaces for partial updates.
         self.top_panel_height = target_height // 2
         self.top_surface = self.screen.subsurface((0, 0, target_width, self.top_panel_height))
-        self.bottom_surface = self.screen.subsurface((0, self.top_panel_height, 
-                                                     target_width, target_height - self.top_panel_height))
+        self.bottom_surface = self.screen.subsurface(
+            (0, self.top_panel_height, target_width, target_height - self.top_panel_height))
         
-        # Create cached background for top panel to avoid redrawing
+        # Create cached background for top panel to avoid redrawing.
         self.top_bg = pygame.Surface((target_width, self.top_panel_height))
         self.top_bg.fill(BLACK)
         
-        # Initialize state
+        # Initialize state.
         self.state = global_state
         self.state.show_debug = True
         
-        # Load assets
+        # Load assets.
         self.assets = UIAssets(target_width, target_height)
         
-        # Create background monitor thread
+        # Create background monitor thread.
         self.monitor = BackgroundMonitor(self)
         self.monitor.start()
         
-        # Communication setup
+        # Communication setup.
         self.publisher = PublisherBase(DEFAULT_PORTS["ui_pub"])
         self.subscriber = SubscriberBase("localhost", DEFAULT_PORTS["awareness_pub"])
         
-        # Animation state
+        # Animation state.
         self.current_frame = 0
         self.frame_count = 0
-        self.bottom_update_counter = 0  # Counter for bottom panel updates
+        self.bottom_update_counter = 0
         self.last_frame_time = time.time()
         self.frame_duration = 1.0 / self.fps
         
-        # Running flag
+        # Running flag.
         self.is_running = False
-        logger.info(f"UI node initialized with resolution {target_width}x{target_height}")
+        logger.info(f"UI node initialized with native resolution {target_width}x{target_height}")
         
-        # Create debug metrics dictionary to track rendering details
+        # Create debug metrics dictionary to track rendering details.
         self.debug_metrics = {
-            "frame_render_times": [],  # Last 10 frame rendering times
-            "avg_render_time": 0.0,    # Average rendering time
-            "using_gfxdraw": False,    # Whether we're using gfxdraw for circles
-            "animation_cache_size": 0, # Size of animation frames in memory
-            "fullscreen_mode": self.fullscreen,  # Current display mode
-            "last_blit_time": 0.0,     # Time for last blit operation
-            "last_surface_time": 0.0,  # Time for last surface operation
+            "frame_render_times": [],
+            "avg_render_time": 0.0,
+            "using_gfxdraw": False,
+            "animation_cache_size": 0,
+            "fullscreen_mode": self.fullscreen,
+            "last_blit_time": 0.0,
+            "last_surface_time": 0.0,
         }
         
-        # Try to detect if we're using gfxdraw
+        # Try to detect if we're using gfxdraw.
         try:
             import pygame.gfxdraw
             self.debug_metrics["using_gfxdraw"] = True
         except ImportError:
             pass
             
-        # Calculate animation cache size
-        total_pixels = target_width * target_height
-        bytes_per_pixel = 4  # RGBA
-        frame_count = 10  # Number of animation frames
+        # Calculate animation cache size.
+        bytes_per_pixel = 4  # RGBA.
+        frame_count = 10  # Number of animation frames.
         self.debug_metrics["animation_cache_size"] = (
             (self.assets.animation_size ** 2) * bytes_per_pixel * frame_count / 1024
-        )  # Size in KB
-    
+        )  # Size in KB.
+
     def start(self) -> None:
         """Start the UI node."""
         if self.is_running:

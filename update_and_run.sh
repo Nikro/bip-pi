@@ -1,6 +1,9 @@
 #!/bin/bash
 # This script updates the repository, validates the environment, and starts the application
 
+# Redirect all output to a log file so we can fetch the most recent run logs later.
+exec >> "$(dirname "$(readlink -f "$0")")/logs/update_and_run.log" 2>&1
+
 # Script constants
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 REQUIRED_FILES=(".env" "config/ui_config.json" "config/awareness_config.json" "config/brains_config.json")
@@ -18,7 +21,8 @@ mkdir -p "${SCRIPT_DIR}/logs"
 log_message() {
     local level="$1"
     local message="$2"
-    local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    local timestamp
+    timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
     
     echo "[$level] $message"
     echo "[$timestamp] [$level] $message" >> "$ERROR_LOG"
