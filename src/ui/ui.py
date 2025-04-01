@@ -143,7 +143,7 @@ class UIAssets:
         self._load_fonts()
         
         # Pre-render animation frames for better performance
-        self.animation_frames = self._create_animation_frames(RED, 10)
+        self.animation_frames = self._create_animation_frames(RED, 30)
         
         # Cache for text rendering to avoid repeated rendering of the same text
         self.text_cache = {}
