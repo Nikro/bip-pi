@@ -6,6 +6,7 @@ SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 REQUIRED_FILES=(".env" "config/ui_config.json" "config/awareness_config.json" "config/brains_config.json")
 MISSING_FILES=()
 ERROR_LOG="${SCRIPT_DIR}/logs/startup_errors.log"
+PYGAME_DETECT_AVX2=1
 
 # Create logs directory if it doesn't exist
 mkdir -p "${SCRIPT_DIR}/logs"
