@@ -1,8 +1,13 @@
-.PHONY: install test lint format update clean run-ui run-awareness run-brains
+.PHONY: install test lint format update clean run-ui run-awareness run-brains sdl-setup
 
 # Installation and setup
 install:
     poetry install
+
+# SDL2 setup specific for the UI component
+sdl-setup:
+    pip install pysdl2 pysdl2-dll
+    @echo "SDL2 Python bindings installed successfully"
 
 # Testing
 test:
@@ -18,7 +23,7 @@ format:
     poetry run isort src tests
 
 # Update system
-update: install
+update: install sdl-setup
     @echo "System updated successfully"
 
 # Running components
