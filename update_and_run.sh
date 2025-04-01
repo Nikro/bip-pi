@@ -146,7 +146,7 @@ if command -v poetry &>/dev/null; then
     
     # Run the UI application with Poetry
     log_message "INFO" "Starting UI application with Poetry..."
-    poetry run python -m src.ui.ui --optimize-for-hardware
+    poetry run python -m src.ui.ui
     
     exit_code=$?
     log_message "INFO" "UI application exited with code $exit_code at $(date)"
@@ -159,14 +159,14 @@ else
         
         # Start the UI application directly
         log_message "INFO" "Starting UI application with Python..."
-        python -m src.ui.ui --optimize-for-hardware
+        python -m src.ui.ui
         
         exit_code=$?
         log_message "INFO" "UI application exited with code $exit_code at $(date)"
     else
         log_message "ERROR" "No virtual environment found. Cannot start application."
         
-        # Display error graphically if possible
+        # Display graphical error if possible
         if [ -n "$DISPLAY" ] && command -v zenity &>/dev/null; then
             zenity --error --title="Reactive Companion Error" --text="No Python virtual environment found.\nPlease run the installation script first."
         fi
