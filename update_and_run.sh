@@ -59,10 +59,10 @@ if [ ${#MISSING_FILES[@]} -gt 0 ]; then
     
     # Display graphical error if DISPLAY is available
     if [ -n "$DISPLAY" ]; then
-        if command -v notify-send &>/dev/null; then
-            notify-send -u critical "Reactive Companion Error" "Missing configuration files. Check logs for details."
-        elif command -v zenity &>/dev/null; then
+        if command -v zenity &>/dev/null; then
             zenity --error --title="Reactive Companion Error" --text="Missing required configuration files:\n$(printf '  - %s\n' "${MISSING_FILES[@]}")"
+        elif command -v notify-send &>/dev/null; then
+            notify-send -u critical "Reactive Companion Error" "Missing configuration files. Check logs for details."
         fi
     fi
     
@@ -73,40 +73,51 @@ if [ ${#MISSING_FILES[@]} -gt 0 ]; then
     exit 1
 fi
 
-# Activate Poetry environment and start application
-log_message "INFO" "Activating Poetry environment..."
+# Try to activate the Python environment
+log_message "INFO" "Activating Python environment..."
 
-# Check if Poetry is installed
-if ! command -v poetry &>/dev/null; then
-    log_message "ERROR" "Poetry is not installed. Please install Poetry and try again."
-    echo "Press Enter to exit..."
-    read -r
-    exit 1
-fi
-
-# Use Poetry to run the update and then the application
-log_message "INFO" "Running project update with Poetry..."
-if ! poetry install; then
-    log_message "ERROR" "Failed to install dependencies with Poetry."
-    echo "Press Enter to exit..."
-    read -r
-    exit 1
-fi
-
-# Run make update if Makefile exists
-if [ -f "Makefile" ]; then
-    log_message "INFO" "Running make update..."
-    if ! poetry run make update; then
-        log_message "WARNING" "Make update failed. Continuing anyway."
+# Check for Poetry first
+if command -v poetry &>/dev/null; then
+    log_message "INFO" "Using Poetry to run the application..."
+    
+    # Update dependencies if needed
+    if ! poetry install; then
+        log_message "WARNING" "Poetry install failed. Continuing with existing dependencies."
+    fi
+    
+    # Run the UI application with Poetry
+    log_message "INFO" "Starting UI application with Poetry..."
+    poetry run python -m src.ui.ui
+    
+    exit_code=$?
+    log_message "INFO" "UI application exited with code $exit_code at $(date)"
+else
+    # Fallback to direct virtual environment activation
+    log_message "INFO" "Poetry not found. Using virtual environment directly..."
+    
+    if [ -f ".venv/bin/activate" ]; then
+        source .venv/bin/activate
+        
+        # Start the UI application directly
+        log_message "INFO" "Starting UI application with Python..."
+        python -m src.ui.ui
+        
+        exit_code=$?
+        log_message "INFO" "UI application exited with code $exit_code at $(date)"
+    else
+        log_message "ERROR" "No virtual environment found. Cannot start application."
+        
+        # Display error graphically if possible
+        if [ -n "$DISPLAY" ] && command -v zenity &>/dev/null; then
+            zenity --error --title="Reactive Companion Error" --text="No Python virtual environment found.\nPlease run the installation script first."
+        fi
+        
+        echo ""
+        echo "Press Enter to exit..."
+        read -r
+        exit 1
     fi
 fi
 
-# Start the UI application
-log_message "INFO" "Starting UI application with Poetry..."
-poetry run python -m src.ui.ui
-
-# This point is reached only if the UI application exits
-log_message "INFO" "UI application exited at $(date)"
-
-# If we get here, keep the terminal window open briefly to show any exit messages
+# Keep terminal window open briefly to show any exit messages
 sleep 3

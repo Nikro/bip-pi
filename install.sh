@@ -6,6 +6,13 @@
 
 set -e  # Exit on error
 
+# Display a visual separator for better readability in the terminal
+separator() {
+  echo "====================================================================="
+  echo "$1"
+  echo "====================================================================="
+}
+
 # CONFIG
 USERNAME=$(whoami)
 HOME_DIR=$(eval echo ~${USERNAME})
@@ -13,26 +20,27 @@ PROJECT_DIR="${HOME_DIR}/bip-pi"
 SCREEN_ROTATION=90
 GIT_REPO="https://github.com/Nikro/bip-pi.git"
 
-echo "==> Setting up for user: $USERNAME (home: $HOME_DIR)"
+separator "Setting up for user: $USERNAME (home: $HOME_DIR)"
 
 ###############################################################################
 # 1. SYSTEM DEPENDENCIES
 ###############################################################################
-echo "==> Installing all system dependencies..."
+separator "Installing all system dependencies..."
 sudo apt update || echo "Warning: apt update failed, continuing anyway"
 
 # Basic system packages - only essential packages, not Python packages
-echo "==> Installing essential packages..."
+separator "Installing essential packages..."
 sudo apt install -y --no-install-recommends \
   python3-pip python3-dev git \
   xserver-xorg xinit openbox tint2 xterm feh epiphany-browser conky \
   openssh-server python3-venv python3-wheel \
+  zenity xterm \
   || echo "Warning: Some packages may have failed to install, continuing anyway"
 
 ###############################################################################
 # 2. SSH SECURITY - RESTRICT TO LOCAL NETWORK
 ###############################################################################
-echo "==> Configuring SSH for local network only..."
+separator "Configuring SSH for local network only..."
 
 # Get the local subnet (assuming 192.168.x.x or 10.x.x.x networks)
 LOCAL_SUBNET=$(ip route | grep -E '(192\.168|10\.)' | grep -v default | head -1 | awk '{print $1}')
@@ -69,7 +77,7 @@ echo "==> SSH configured to allow connections only from the local network ($LOCA
 ###############################################################################
 # 3. PROJECT SETUP - CLONE FROM GIT
 ###############################################################################
-echo "==> Cloning Reactive Companion from Git repository..."
+separator "Cloning Reactive Companion from Git repository..."
 
 # Clone the repository
 if [ -d "${PROJECT_DIR}" ]; then
@@ -89,7 +97,7 @@ chmod +x ${PROJECT_DIR}/*.sh
 ###############################################################################
 
 # Auto-login setup
-echo "==> Enabling auto-login for $USERNAME on tty1..."
+separator "Enabling auto-login for $USERNAME on tty1..."
 if [ -d "/etc/systemd/system" ]; then
   sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
   sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf > /dev/null <<EOF
@@ -103,14 +111,14 @@ EOF
 fi
 
 # .xinitrc
-echo "==> Creating .xinitrc for Openbox..."
+separator "Creating .xinitrc for Openbox..."
 cat <<EOF > "${HOME_DIR}/.xinitrc"
 exec openbox-session
 EOF
 chmod 755 "${HOME_DIR}/.xinitrc"
 
 # Openbox autostart - modified to use update_and_run.sh
-echo "==> Creating Openbox autostart file with automatic updates..."
+separator "Creating Openbox autostart file with automatic updates..."
 mkdir -p "${HOME_DIR}/.config/openbox"
 cat <<EOF > "${HOME_DIR}/.config/openbox/autostart"
 # Start the reactive companion with auto-update in an xterm
@@ -124,7 +132,7 @@ chmod 755 "${HOME_DIR}/.config/openbox/autostart"
 
 # Configure screen rotation if needed
 if [ "$SCREEN_ROTATION" -eq 90 ]; then 
-  echo "==> Configuring screen rotation via X11 (90 degrees)..."
+  separator "Configuring screen rotation via X11 (90 degrees)..."
   sudo mkdir -p /etc/X11/xorg.conf.d/
   sudo tee /etc/X11/xorg.conf.d/90-monitor.conf > /dev/null <<EOF
 Section "Monitor"
@@ -140,7 +148,7 @@ EOF
 fi
 
 # .bash_profile auto-start
-echo "==> Enabling automatic startx on tty1..."
+separator "Enabling automatic startx on tty1..."
 cat <<EOF > "${HOME_DIR}/.bash_profile"
 # Source .bashrc
 if [ -f "\${HOME}/.bashrc" ]; then
@@ -155,14 +163,14 @@ EOF
 chmod 755 "${HOME_DIR}/.bash_profile" || echo "Warning: Unable to set permissions on .bash_profile"
 
 # Set default browser
-echo "==> Setting Epiphany as x-www-browser..."
+separator "Setting Epiphany as x-www-browser..."
 if command -v epiphany-browser &>/dev/null; then
   sudo update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/epiphany-browser 100 || true
   sudo update-alternatives --set x-www-browser /usr/bin/epiphany-browser || true
 fi
 
 # Conky config with added git status
-echo "==> Creating Conky config with repository status..."
+separator "Creating Conky config with repository status..."
 cat <<EOF > "${HOME_DIR}/.conkyrc"
 conky.config = {
     alignment = 'top_right',
@@ -186,41 +194,130 @@ EOF
 chmod 644 "${HOME_DIR}/.conkyrc" || echo "Warning: Unable to set permissions on .conkyrc"
 
 ###############################################################################
-# 5. PYTHON ENVIRONMENT SETUP WITH POETRY
+# 5. PYTHON ENVIRONMENT SETUP WITH PIP AND VENV
 ###############################################################################
-echo "==> Setting up Python environment with Poetry..."
+separator "Setting up Python environment"
 
-# Check if Poetry is installed, install if needed
-if ! command -v poetry &>/dev/null; then
-    echo "==> Installing Poetry..."
-    curl -sSL https://install.python-poetry.org | python3 -
+# Check Python version
+PYTHON_VERSION=$(python3 --version 2>/dev/null | cut -d ' ' -f 2) || PYTHON_VERSION="0.0.0"
+PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d '.' -f 1)
+PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d '.' -f 2)
+
+echo "==> Detected Python version: $PYTHON_VERSION"
+
+# Check if Python version is adequate (we need at least 3.10)
+if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]); then
+    echo "==> Python version $PYTHON_VERSION is below the required 3.10"
+    echo "==> Attempting to install Python 3.10 or later..."
     
-    # Add Poetry to PATH in .bashrc if not already there
-    if ! grep -q "PATH=\"\$HOME/.local/bin:\$PATH\"" "${HOME_DIR}/.bashrc"; then
-        echo -e '\n# Add Poetry to PATH\nexport PATH="$HOME/.local/bin:$PATH"' >> "${HOME_DIR}/.bashrc"
-        # Apply the PATH change in the current session
-        export PATH="$HOME/.local/bin:$PATH"
+    # Try to install Python 3.10
+    if command -v add-apt-repository &>/dev/null; then
+        # Add deadsnakes PPA if it doesn't exist
+        if ! grep -q "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+            echo "==> Adding deadsnakes PPA..."
+            sudo add-apt-repository -y ppa:deadsnakes/ppa
+            sudo apt update
+        fi
+        
+        # Try Python 3.11 first (if available)
+        echo "==> Attempting to install Python 3.11..."
+        if sudo apt install -y python3.11 python3.11-venv python3.11-dev; then
+            if command -v python3.11 &>/dev/null; then
+                echo "==> Successfully installed Python 3.11"
+                PYTHON_CMD="python3.11"
+            fi
+        else
+            echo "==> Python 3.11 not available, trying Python 3.10..."
+        fi
+        
+        # If Python 3.11 failed or not available, try Python 3.10
+        if [ -z "$PYTHON_CMD" ] || [ "$PYTHON_CMD" = "python3" ]; then
+            echo "==> Installing Python 3.10..."
+            sudo apt install -y python3.10 python3.10-venv python3.10-dev
+            
+            if command -v python3.10 &>/dev/null; then
+                echo "==> Successfully installed Python 3.10"
+                PYTHON_CMD="python3.10"
+            else
+                echo "==> ERROR: Could not install Python 3.10."
+                echo "==> Poetry 2.1.2 requires Python 3.10 or later. Installation cannot continue."
+                exit 1
+            fi
+        fi
+    else
+        echo "==> ERROR: Could not add PPA to install Python 3.10+."
+        echo "==> Poetry 2.1.2 requires Python 3.10 or later. Installation cannot continue."
+        exit 1
     fi
+else
+    echo "==> Python version $PYTHON_VERSION meets requirements"
+    PYTHON_CMD="python3"
 fi
 
-# Set up the project dependencies with Poetry
+# Create virtual environment with the appropriate Python version
 cd ${PROJECT_DIR}
+echo "==> Creating virtual environment using $($PYTHON_CMD --version)..."
+$PYTHON_CMD -m venv .venv
 
-# Let Poetry use the system Python and create the venv in the project directory
-poetry config virtualenvs.in-project true --local
+# Activate the virtual environment
+source .venv/bin/activate
 
-echo "==> Installing project dependencies with Poetry..."
-poetry install || echo "Warning: Poetry install failed, please run 'poetry install' manually"
+# Upgrade pip
+echo "==> Upgrading pip..."
+pip install --upgrade pip setuptools wheel
 
-# Add project directory to Python path for the current user
-if ! grep -q "PYTHONPATH=\"${PROJECT_DIR}" "${HOME_DIR}/.bashrc"; then
-    echo -e '\n# Add project to PYTHONPATH\nexport PYTHONPATH="'"${PROJECT_DIR}"':$PYTHONPATH"' >> "${HOME_DIR}/.bashrc"
+# Install Poetry 2.1.2 or later
+echo "==> Installing Poetry 2.1.2 or later..."
+pip install "poetry>=2.1.2"
+
+# Verify Poetry installation
+if command -v poetry &>/dev/null; then
+    POETRY_VERSION=$(poetry --version | awk '{print $3}')
+    echo "==> Poetry $POETRY_VERSION installed successfully!"
+    
+    # Verify Poetry version meets minimum requirements
+    POETRY_MAJOR=$(echo $POETRY_VERSION | cut -d'.' -f1)
+    POETRY_MINOR=$(echo $POETRY_VERSION | cut -d'.' -f2)
+    POETRY_PATCH=$(echo $POETRY_VERSION | cut -d'.' -f3)
+    
+    if [ "$POETRY_MAJOR" -lt 2 ] || ([ "$POETRY_MAJOR" -eq 2 ] && [ "$POETRY_MINOR" -lt 1 ]) || ([ "$POETRY_MAJOR" -eq 2 ] && [ "$POETRY_MINOR" -eq 1 ] && [ "$POETRY_PATCH" -lt 2 ]); then
+        echo "==> WARNING: Poetry version $POETRY_VERSION is below the required 2.1.2."
+        echo "==> This might cause compatibility issues with the project."
+    fi
+    
+    # Configure Poetry to use the virtual environment we just created
+    poetry config virtualenvs.in-project true --local
+    
+    echo "==> Installing project dependencies with Poetry..."
+    if poetry install; then
+        echo "==> Dependencies installed successfully!"
+    else
+        echo "==> WARNING: Poetry install failed. Checking Python compatibility..."
+        
+        # Get the required Python version from pyproject.toml
+        REQUIRED_PYTHON=$(grep "python =" ${PROJECT_DIR}/pyproject.toml | head -1 | cut -d '"' -f 2 | sed 's/\^//')
+        echo "==> Project requires Python $REQUIRED_PYTHON"
+        
+        if [ "$PYTHON_MAJOR" -lt "${REQUIRED_PYTHON%%.*}" ] || ([ "$PYTHON_MAJOR" -eq "${REQUIRED_PYTHON%%.*}" ] && [ "$PYTHON_MINOR" -lt "$(echo $REQUIRED_PYTHON | cut -d '.' -f 2)" ]); then
+            echo "==> ERROR: Your Python version ($PYTHON_VERSION) is lower than the required version ($REQUIRED_PYTHON)"
+            echo "==> Please install Python $REQUIRED_PYTHON or later and run this script again"
+        fi
+        
+        echo "==> WARNING: Installing core dependencies directly with pip as fallback..."
+        pip install pyzmq pygame pyaudio numpy psutil pydantic python-dotenv
+    fi
+else
+    echo "==> ERROR: Poetry installation failed!"
+    echo "==> This is critical as Poetry 2.1.2+ is required for managing project dependencies."
+    echo "==> The fallback installation with pip might not include all required dependencies."
+    echo "==> Installing core dependencies directly with pip as emergency fallback..."
+    pip install pyzmq pygame pyaudio numpy psutil pydantic python-dotenv
 fi
 
 ###############################################################################
 # 6. ENSURE BASIC ENV CONFIGURATION
 ###############################################################################
-echo "==> Creating basic environment configuration..."
+separator "Creating basic environment configuration"
 
 # Create config directory
 mkdir -p ${PROJECT_DIR}/config
@@ -252,10 +349,10 @@ fi
 # No more default JSON creation - that will be handled by the application or manually
 
 # Run the cleanup script to ensure a clean environment
-echo "==> Running cleanup script..."
+separator "Running cleanup script..."
 ${PROJECT_DIR}/cleanup.sh
 
-echo "==> Setup complete!"
+separator "Setup complete!"
 echo "Your Reactive Companion project is set up at: ${PROJECT_DIR}"
 echo "The system will automatically update and start on boot."
 echo "To manually start the system:"
@@ -265,7 +362,7 @@ echo "  3. ./update_and_run.sh"
 
 # Define a function for automatic startup
 autostart() {
-    echo "==> Setting up automatic startup on boot..."
+    separator "Setting up automatic startup on boot..."
     # This function is intentionally kept as a placeholder
     # Actual autostart is handled by .bash_profile and openbox/autostart
     echo "Automatic startup configured successfully!"
