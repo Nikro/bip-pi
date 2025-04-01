@@ -414,15 +414,15 @@ class UINode:
         ]
         
         # Create a semi-transparent background for better readability
-        debug_panel = pygame.Surface((220, 30 + len(debug_texts) * 25))
+        debug_panel = pygame.Surface((220, 30 + len(debug_texts) * 20))
         debug_panel.set_alpha(180)
         debug_panel.fill(BLACK)
-        self.display.blit(debug_panel, (self.width - 230, 10))
+        self.display.blit(debug_panel, (self.width - 230, self.height - (40 + len(debug_texts) * 20)))
         
         # Render debug text
         for i, text in enumerate(debug_texts):
             debug_surface = self.assets.small_font.render(text, True, LIGHT_GRAY)
-            self.display.blit(debug_surface, (self.width - 220, 20 + i * 25))
+            self.display.blit(debug_surface, (self.width - 220, self.height - (30 + len(debug_texts) * 20) + i * 20))
 
 
 def main() -> None:
