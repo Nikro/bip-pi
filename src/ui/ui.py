@@ -101,14 +101,14 @@ class UIAssets:
         self.screen_width = screen_width
         self.screen_height = screen_height
         
-        # Calculate dimensions for animation panel
-        self.animation_size = min(screen_width, screen_height // 2) - 40
+        # Calculate dimensions for animation panel - much smaller circle (10x smaller)
+        self.animation_size = min(screen_width, screen_height // 2) // 5
         
         # Load fonts with appropriate sizes
         font_scale = max(0.6, min(screen_width, screen_height) / 640)
         self.title_font_size = int(24 * font_scale)
         self.text_font_size = int(16 * font_scale)
-        self.small_font_size = int(12 * font_scale)
+        self.small_font_size = int(10 * font_scale)  # Smaller debug text
         
         # Try to load system fonts, fallback if not available
         try:
@@ -130,13 +130,13 @@ class UIAssets:
         self.small_font = pygame.font.SysFont("monospace", self.small_font_size)
     
     def _create_animation_frames(self, color, num_frames):
-        """Pre-render animation frames for better performance."""
+        """Pre-render animation frames for better performance with more subtle animation."""
         frames = []
         animation_size = self.animation_size
         
         for i in range(num_frames):
-            # Calculate subtle pulse factor (0.85 to 1.0 for subtler animation)
-            pulse_factor = 0.85 + 0.15 * abs(num_frames/2 - i) / (num_frames/2)
+            # Calculate even more subtle pulse factor (0.92 to 1.0 for very subtle animation)
+            pulse_factor = 0.92 + 0.08 * abs(num_frames/2 - i) / (num_frames/2)
             
             # Create surface for this frame (with solid background)
             surface = pygame.Surface((animation_size, animation_size))
@@ -381,6 +381,17 @@ class UINode:
         center_x = (self.width - self.assets.animation_size) // 2
         center_y = (self.top_panel_height - self.assets.animation_size) // 2
         
+        # Create a rectangle for the area we're updating - only update the circle area
+        update_rect = pygame.Rect(
+            center_x, 
+            center_y, 
+            self.assets.animation_size, 
+            self.assets.animation_size
+        )
+        
+        # Clear only the area we're updating
+        self.top_surface.fill(BLACK, update_rect)
+        
         # Blit the pre-rendered animation frame
         self.top_surface.blit(animation_frame, (center_x, center_y))
     
@@ -410,10 +421,9 @@ class UINode:
         # Render additional status information
         y_pos = 20 + self.assets.title_font_size + 10
         
-        # System status
+        # System status - removed "Last Update" line
         status_info = [
             f"System Status: Online",
-            f"Last Update: {time.strftime('%H:%M:%S')}",
             f"Temperature: {self.monitor.temperature:.1f}°C"
         ]
         
@@ -439,16 +449,16 @@ class UINode:
             f"CPU: {self.monitor.cpu_usage:.1f}%",
             f"MEM: {self.monitor.memory_usage:.1f}MB",
             f"TEMP: {self.monitor.temperature:.1f}°C",
-            f"Resolution: {self.width}x{self.height}"
+            f"Res: {self.width}x{self.height}"  # Shortened text
         ]
         
         # Calculate dimensions for debug panel
-        bg_width = 180
+        bg_width = 160  # Reduced width
         bg_height = (len(debug_info) * (self.assets.small_font_size + 5)) + 10
         
-        # Draw solid background (right-aligned)
+        # Draw solid background (right-aligned but moved left a bit)
         bg_rect = pygame.Rect(
-            self.width - bg_width - 10,
+            self.width - bg_width - 30,  # More padding on right side
             self.height - self.top_panel_height - bg_height - 10,
             bg_width,
             bg_height
@@ -464,7 +474,7 @@ class UINode:
                 self.bottom_surface,
                 info,
                 "small",
-                self.width - bg_width + 5,  # 5px padding
+                self.width - bg_width - 25,  # More padding on right side for text
                 self.height - self.top_panel_height - bg_height + (i * (self.assets.small_font_size + 5)) + 5,
                 LIGHT_GRAY
             )
