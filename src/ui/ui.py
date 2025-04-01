@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import threading
+import math
 import logging
 from typing import Dict, Any, List, Tuple, Optional, Set
 
@@ -180,7 +181,8 @@ class UIAssets:
         
         for i in range(num_frames):
             # Calculate subtle pulse factor
-            pulse_factor = 0.92 + 0.08 * abs(num_frames/2 - i) / (num_frames/2)
+            phase = (i / num_frames) * 2 * math.pi
+            pulse_factor = 0.92 + 0.08 * ((math.sin(phase) + 1) / 2)
             
             # Create optimized surface with pixel alpha
             surface = pygame.Surface((animation_size, animation_size), flags=SRCALPHA)
