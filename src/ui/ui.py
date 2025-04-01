@@ -52,11 +52,6 @@ RED = (255, 0, 0)
 FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 MONO_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 
-# Default resolution scaling factor (original is 1050x1680)
-# Target around 600 width while maintaining aspect ratio
-DEFAULT_SCALE_FACTOR = 0.57  # ~600/1050
-
-
 class BackgroundMonitor(threading.Thread):
     """Background thread for system monitoring tasks."""
     
