@@ -38,16 +38,32 @@ RED = (255, 0, 0)
 class UIAssets:
     """Container for UI assets like fonts and images."""
     
-    def __init__(self):
-        """Initialize and load UI assets."""
+    def __init__(self, screen_width: int, screen_height: int):
+        """
+        Initialize and load UI assets.
+        
+        Args:
+            screen_width: Width of the display
+            screen_height: Height of the display
+        """
+        # Store screen dimensions for scaling
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        
+        # Calculate dimensions for animation panel
+        self.animation_size = min(screen_width, screen_height // 2)
+        
         # Ensure pygame font is initialized
         if not pygame.font.get_init():
             pygame.font.init()
         
+        # Scale fonts based on screen dimensions
+        font_scale = max(1.0, min(screen_width, screen_height) / 480)
+        
         # Load fonts
-        self.title_font = pygame.font.SysFont("Arial", 32)
-        self.text_font = pygame.font.SysFont("Arial", 24)
-        self.small_font = pygame.font.SysFont("Arial", 16)
+        self.title_font = pygame.font.SysFont("Arial", int(32 * font_scale))
+        self.text_font = pygame.font.SysFont("Arial", int(24 * font_scale))
+        self.small_font = pygame.font.SysFont("Arial", int(16 * font_scale))
         
         # Load images
         self.images = {}
@@ -79,24 +95,27 @@ class UIAssets:
             List of pygame surfaces containing animation frames
         """
         frames = []
-        surface_size = (100, 100)
+        # Make animation size proportional to the screen size
+        animation_size = min(self.screen_width, self.screen_height // 2) - 40
+        surface_size = (animation_size, animation_size)
         
         # Create a series of pulsing circle frames
         for i in range(num_frames):
-            # Calculate pulse factor (0.5 to 1.0)
-            pulse_factor = 0.5 + 0.5 * abs(num_frames/2 - i) / (num_frames/2)
+            # Calculate pulse factor (0.7 to 1.0) - starting larger for better visibility
+            pulse_factor = 0.7 + 0.3 * abs(num_frames/2 - i) / (num_frames/2)
             
             # Create a new transparent surface
             surface = pygame.Surface(surface_size, pygame.SRCALPHA)
             
             # Draw a circle with the pulse factor
-            radius = int(40 * pulse_factor)
-            pygame.draw.circle(
-                surface, 
-                color, 
-                (surface_size[0]//2, surface_size[1]//2), 
-                radius
-            )
+            radius = int(animation_size // 2.5 * pulse_factor)
+            center = (surface_size[0]//2, surface_size[1]//2)
+            
+            # Add a subtle glow effect with multiple circles
+            for r in range(radius, max(0, radius-20), -2):
+                alpha = 255 - (radius - r) * 12
+                glow_color = (color[0], color[1], color[2], max(0, min(255, alpha)))
+                pygame.draw.circle(surface, glow_color, center, r)
             
             frames.append(surface)
         
@@ -121,29 +140,44 @@ class UINode:
         # Load configuration
         self.config = load_config(config_path) if config_path else {}
         
-        # Default UI settings
-        self.width = self.config.get("ui", {}).get("width", 800)
-        self.height = self.config.get("ui", {}).get("height", 480)
-        self.fps = self.config.get("ui", {}).get("fps", 30)
-        self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
-        
-        # Initialize state (use the global state singleton)
-        self.state = global_state
-        
         # Initialize pygame if not already initialized
         if not pygame.get_init():
             pygame.init()
         
-        # Initialize the display
-        self.display_flags = pygame.FULLSCREEN if self.fullscreen else 0
+        # Get the display info to handle orientation properly
+        display_info = pygame.display.Info()
+        
+        # Default UI settings
+        self.width = self.config.get("ui", {}).get("width", display_info.current_w)
+        self.height = self.config.get("ui", {}).get("height", display_info.current_h)
+        self.fps = self.config.get("ui", {}).get("fps", 60)  # Higher FPS for smoother animation
+        self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
+        
+        logger.info(f"Display resolution: {self.width}x{self.height}")
+        
+        # Initialize state (use the global state singleton)
+        self.state = global_state
+        # Enable debug mode by default
+        self.state.show_debug = True
+        
+        # Initialize the display with hardware acceleration
+        self.display_flags = pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF if self.fullscreen else 0
         self.display = pygame.display.set_mode((self.width, self.height), self.display_flags)
         pygame.display.set_caption("Reactive Companion")
         
         # Create a clock for controlling frame rate
         self.clock = pygame.time.Clock()
         
-        # Load assets
-        self.assets = UIAssets()
+        # Define the panels (top and bottom)
+        self.top_panel_height = self.height // 2
+        self.bottom_panel_height = self.height - self.top_panel_height
+        
+        # Load assets after we know the screen dimensions
+        self.assets = UIAssets(self.width, self.height)
+        
+        # System monitoring
+        self.temperature = 0.0
+        self.last_temp_check = 0
         
         # Communication
         self.publisher = PublisherBase(DEFAULT_PORTS["ui_pub"])
@@ -157,7 +191,7 @@ class UINode:
         
         # Running flag
         self.is_running = False
-        logger.info("UI node initialized")
+        logger.info(f"UI node initialized with resolution {self.width}x{self.height}")
     
     def start(self) -> None:
         """Start the UI node."""
@@ -231,7 +265,7 @@ class UINode:
                 elif event.key == K_f:
                     # Toggle fullscreen
                     self.fullscreen = not self.fullscreen
-                    self.display_flags = pygame.FULLSCREEN if self.fullscreen else 0
+                    self.display_flags = pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF if self.fullscreen else 0
                     self.display = pygame.display.set_mode(
                         (self.width, self.height), 
                         self.display_flags
@@ -248,65 +282,147 @@ class UINode:
     def _update_state(self) -> None:
         """Update state and animations."""
         # Update animation frame
-        if self.frame_count % 3 == 0:  # Slow down animation
+        if self.frame_count % 2 == 0:  # Update animation faster for smoother visuals
             self.current_frame = (self.current_frame + 1) % 10
             self.state.animation_frame = self.current_frame
+            
+        # Update system temperature every second
+        current_time = time.time()
+        if current_time - self.last_temp_check >= 1.0:
+            self.temperature = self._get_system_temperature()
+            self.last_temp_check = current_time
+    
+    def _get_system_temperature(self) -> float:
+        """
+        Get the current system temperature.
         
-        # If we're in idle mode for too long, could do something here
-        # For example, show different idle animations
+        Returns:
+            Current CPU temperature in Celsius, or 0.0 if unavailable
+        """
+        try:
+            # Try reading from thermal zone 0 (common on Linux systems)
+            with open("/sys/class/thermal/thermal_zone0/temp", "r") as temp_file:
+                temp = float(temp_file.read().strip()) / 1000.0
+                return temp
+        except (IOError, ValueError):
+            try:
+                # Alternative method using vcgencmd (Raspberry Pi specific)
+                import subprocess
+                result = subprocess.run(
+                    ["vcgencmd", "measure_temp"],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    # Parse output like "temp=45.8'C"
+                    temp_str = result.stdout.strip()
+                    temp = float(temp_str.split("=")[1].split("'")[0])
+                    return temp
+            except (ImportError, subprocess.SubprocessError, ValueError, IndexError):
+                pass
+                
+        return 0.0
     
     def _render(self) -> None:
         """Render the UI based on current state."""
         # Fill the background
         self.display.fill(BLACK)
         
-        # Get current mode and render appropriate visuals
+        # Draw the top panel (animation)
+        self._render_top_panel()
+        
+        # Draw the bottom panel (information)
+        self._render_bottom_panel()
+        
+        # Draw debug information if enabled
+        if self.state.show_debug:
+            self._render_debug()
+        
+        # Update the display
+        pygame.display.flip()
+    
+    def _render_top_panel(self) -> None:
+        """Render the top panel with animation."""
+        # Get current mode
         mode = self.state.mode
         
-        # Draw the current animation frame for the current mode
-        animation_frame = self.assets.animation_frames[mode][self.current_frame]
-        self.display.blit(
-            animation_frame, 
-            ((self.width - animation_frame.get_width()) // 2, 50)
+        # Draw a separator line
+        pygame.draw.line(
+            self.display, 
+            GRAY, 
+            (0, self.top_panel_height), 
+            (self.width, self.top_panel_height),
+            3
         )
         
-        # Draw the mode text
+        # Always use red pulsating circle as requested
+        animation_frame = self.assets.animation_frames[SystemMode.ERROR][self.current_frame]
+        
+        # Center the animation in the top panel
+        self.display.blit(
+            animation_frame, 
+            (
+                (self.width - animation_frame.get_width()) // 2, 
+                (self.top_panel_height - animation_frame.get_height()) // 2
+            )
+        )
+    
+    def _render_bottom_panel(self) -> None:
+        """Render the bottom panel with information."""
+        # Get current mode
+        mode = self.state.mode
+        
+        # Define starting positions
+        y_pos = self.top_panel_height + 20
+        x_pos = 20
+        line_height = self.assets.text_font.get_height() + 10
+        
+        # Draw mode information
         mode_text = self.assets.title_font.render(f"Mode: {mode.name}", True, WHITE)
-        self.display.blit(mode_text, (20, 20))
+        self.display.blit(mode_text, (x_pos, y_pos))
+        y_pos += line_height * 1.5
         
         # Draw the last message (if any)
         if self.state.last_message:
             message_text = self.assets.text_font.render(
                 f"Message: {self.state.last_message[:30]}...", True, WHITE)
-            self.display.blit(message_text, (20, 200))
+            self.display.blit(message_text, (x_pos, y_pos))
+            y_pos += line_height
         
         # Draw the last response (if any)
         if self.state.last_response:
             response_text = self.assets.text_font.render(
                 f"Response: {self.state.last_response[:30]}...", True, WHITE)
-            self.display.blit(response_text, (20, 250))
+            self.display.blit(response_text, (x_pos, y_pos))
+            y_pos += line_height
         
         # Draw error message if in error state
         if mode == SystemMode.ERROR:
             error_text = self.assets.text_font.render(
                 f"Error: {self.state.error_message}", True, RED)
-            self.display.blit(error_text, (20, 300))
+            self.display.blit(error_text, (x_pos, y_pos))
+    
+    def _render_debug(self) -> None:
+        """Render debug information."""
+        debug_texts = [
+            f"FPS: {self.state.fps}",
+            f"CPU: {self.state.cpu_usage:.1f}%",
+            f"MEM: {self.state.memory_usage:.1f} MB",
+            f"TEMP: {self.temperature:.1f}°C",
+            f"Frame: {self.current_frame}/10",
+            f"Resolution: {self.width}x{self.height}"
+        ]
         
-        # Draw debug information if enabled
-        if self.state.show_debug:
-            debug_texts = [
-                f"FPS: {self.state.fps}",
-                f"CPU: {self.state.cpu_usage:.1f}%",
-                f"MEM: {self.state.memory_usage:.1f} MB",
-                f"Frame: {self.current_frame}/10"
-            ]
-            
-            for i, text in enumerate(debug_texts):
-                debug_surface = self.assets.small_font.render(text, True, LIGHT_GRAY)
-                self.display.blit(debug_surface, (self.width - 150, 20 + i * 20))
+        # Create a semi-transparent background for better readability
+        debug_panel = pygame.Surface((220, 30 + len(debug_texts) * 25))
+        debug_panel.set_alpha(180)
+        debug_panel.fill(BLACK)
+        self.display.blit(debug_panel, (self.width - 230, 10))
         
-        # Update the display
-        pygame.display.flip()
+        # Render debug text
+        for i, text in enumerate(debug_texts):
+            debug_surface = self.assets.small_font.render(text, True, LIGHT_GRAY)
+            self.display.blit(debug_surface, (self.width - 220, 20 + i * 25))
 
 
 def main() -> None:
