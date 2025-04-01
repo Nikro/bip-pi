@@ -226,45 +226,41 @@ class UINode:
         info = pygame.display.Info()
         
         # Use configured resolution values as the base resolution
-        base_width = self.config.get("ui", {}).get("width", 1050)  # Default to actual width
-        base_height = self.config.get("ui", {}).get("height", 1680)  # Default to actual height
+        base_width = self.config.get("ui", {}).get("width", 1050)  # Default to 1050
+        base_height = self.config.get("ui", {}).get("height", 1680)  # Default to 1680
         
         # Apply scaling factor to the base resolution
         scale_factor = self.config.get("ui", {}).get("scale_factor", DEFAULT_SCALE_FACTOR)
-        self.width = int(base_width * scale_factor)
-        self.height = int(base_height * scale_factor)
+        target_width = int(base_width * scale_factor)
+        target_height = int(base_height * scale_factor)
         
         # Additional UI settings
         self.fps = self.config.get("ui", {}).get("fps", 30)
         self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
         
         logger.info(f"Base resolution: {base_width}x{base_height}")
-        logger.info(f"Scaled resolution: {self.width}x{self.height}")
+        logger.info(f"Target scaled resolution: {target_width}x{target_height}")
         
         # Create window with hardware acceleration
-        # If in fullscreen mode, use the current display resolution
-        # Otherwise use our calculated scaled resolution
+        # Force the scaled resolution even in fullscreen mode
         if self.fullscreen:
-            flags = pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF
-            self.screen = pygame.display.set_mode((0, 0), flags)  # (0,0) means use current resolution
-            
-            # Get the actual display size when in fullscreen
-            self.width, self.height = self.screen.get_size()
-            logger.info(f"Fullscreen display resolution: {self.width}x{self.height}")
+            # Use scaled resolution with fullscreen flag
+            flags = pygame.FULLSCREEN | pygame.HWSURFACE
+            self.screen = pygame.display.set_mode((target_width, target_height), flags)
         else:
             flags = pygame.HWSURFACE | pygame.DOUBLEBUF
-            self.screen = pygame.display.set_mode((self.width, self.height), flags)
+            self.screen = pygame.display.set_mode((target_width, target_height), flags)
         
         pygame.display.set_caption("Reactive Companion")
         
         # Create subsurfaces for partial updates
-        self.top_panel_height = self.height // 2
-        self.top_surface = self.screen.subsurface((0, 0, self.width, self.top_panel_height))
+        self.top_panel_height = target_height // 2
+        self.top_surface = self.screen.subsurface((0, 0, target_width, self.top_panel_height))
         self.bottom_surface = self.screen.subsurface((0, self.top_panel_height, 
-                                                     self.width, self.height - self.top_panel_height))
+                                                     target_width, target_height - self.top_panel_height))
         
         # Create cached background for top panel to avoid redrawing
-        self.top_bg = pygame.Surface((self.width, self.top_panel_height))
+        self.top_bg = pygame.Surface((target_width, self.top_panel_height))
         self.top_bg.fill(BLACK)
         
         # Initialize state
@@ -272,7 +268,7 @@ class UINode:
         self.state.show_debug = True
         
         # Load assets
-        self.assets = UIAssets(self.width, self.height)
+        self.assets = UIAssets(target_width, target_height)
         
         # Create background monitor thread
         self.monitor = BackgroundMonitor(self)
@@ -291,7 +287,33 @@ class UINode:
         
         # Running flag
         self.is_running = False
-        logger.info(f"UI node initialized with resolution {self.width}x{self.height}")
+        logger.info(f"UI node initialized with resolution {target_width}x{target_height}")
+        
+        # Create debug metrics dictionary to track rendering details
+        self.debug_metrics = {
+            "frame_render_times": [],  # Last 10 frame rendering times
+            "avg_render_time": 0.0,    # Average rendering time
+            "using_gfxdraw": False,    # Whether we're using gfxdraw for circles
+            "animation_cache_size": 0, # Size of animation frames in memory
+            "fullscreen_mode": self.fullscreen,  # Current display mode
+            "last_blit_time": 0.0,     # Time for last blit operation
+            "last_surface_time": 0.0,  # Time for last surface operation
+        }
+        
+        # Try to detect if we're using gfxdraw
+        try:
+            import pygame.gfxdraw
+            self.debug_metrics["using_gfxdraw"] = True
+        except ImportError:
+            pass
+            
+        # Calculate animation cache size
+        total_pixels = target_width * target_height
+        bytes_per_pixel = 4  # RGBA
+        frame_count = 10  # Number of animation frames
+        self.debug_metrics["animation_cache_size"] = (
+            (self.assets.animation_size ** 2) * bytes_per_pixel * frame_count / 1024
+        )  # Size in KB
     
     def start(self) -> None:
         """Start the UI node."""
@@ -391,6 +413,7 @@ class UINode:
                 elif event.key == pygame.K_d:
                     # Toggle debug mode
                     self.state.show_debug = not self.state.show_debug
+                    logger.info(f"Debug mode toggled: {self.state.show_debug}")
                 
                 elif event.key == pygame.K_f:
                     # Toggle fullscreen
@@ -402,6 +425,7 @@ class UINode:
                     self.top_surface = self.screen.subsurface((0, 0, self.width, self.top_panel_height))
                     self.bottom_surface = self.screen.subsurface((0, self.top_panel_height, 
                                                                 self.width, self.height - self.top_panel_height))
+                    self.debug_metrics["fullscreen_mode"] = self.fullscreen
     
     def _check_messages(self) -> None:
         """Check for messages from other nodes."""
@@ -417,6 +441,9 @@ class UINode:
     
     def _render_top_panel(self) -> None:
         """Render the top panel with pulsating red circle."""
+        # Measure rendering time
+        start_time = time.perf_counter()
+        
         # Get current animation frame
         animation_frame = self.assets.animation_frames[self.current_frame]
         
@@ -433,10 +460,28 @@ class UINode:
         )
         
         # Clear only the area we're updating
+        surface_start = time.perf_counter()
         self.top_surface.fill(BLACK, update_rect)
+        self.debug_metrics["last_surface_time"] = (time.perf_counter() - surface_start) * 1000
         
         # Blit the pre-rendered animation frame
+        blit_start = time.perf_counter()
         self.top_surface.blit(animation_frame, (center_x, center_y))
+        self.debug_metrics["last_blit_time"] = (time.perf_counter() - blit_start) * 1000
+        
+        # Record total rendering time
+        frame_time = (time.perf_counter() - start_time) * 1000  # Convert to ms
+        self.debug_metrics["frame_render_times"].append(frame_time)
+        
+        # Keep only the last 10 frame times
+        if len(self.debug_metrics["frame_render_times"]) > 10:
+            self.debug_metrics["frame_render_times"].pop(0)
+        
+        # Calculate average render time
+        if self.debug_metrics["frame_render_times"]:
+            self.debug_metrics["avg_render_time"] = sum(
+                self.debug_metrics["frame_render_times"]
+            ) / len(self.debug_metrics["frame_render_times"])
     
     def _render_bottom_panel(self) -> None:
         """Render the bottom panel with information."""
@@ -482,26 +527,34 @@ class UINode:
             y_pos += self.assets.text_font_size + 5
     
     def _render_debug(self) -> None:
-        """Render debug information in the bottom-right corner."""
+        """Render enhanced debug information in the bottom-right corner."""
         if not self.state.show_debug:
             return
         
-        # Debug information
+        # Basic debug information
         debug_info = [
             f"FPS: {self.state.fps}",
             f"CPU: {self.monitor.cpu_usage:.1f}%",
             f"MEM: {self.monitor.memory_usage:.1f}MB",
             f"TEMP: {self.monitor.temperature:.1f}°C",
-            f"Res: {self.width}x{self.height}"  # Shortened text
+            f"Res: {self.width}x{self.height}",
+            "",  # Empty line as separator
+            f"RENDER: {self.debug_metrics['avg_render_time']:.2f}ms",
+            f"BLIT: {self.debug_metrics['last_blit_time']:.2f}ms",
+            f"SURFACE: {self.debug_metrics['last_surface_time']:.2f}ms",
+            f"CACHE: {self.debug_metrics['animation_cache_size']:.1f}KB",
+            f"GFXDRAW: {'Yes' if self.debug_metrics['using_gfxdraw'] else 'No'}",
+            f"ANIM: {self.current_frame+1}/{len(self.assets.animation_frames)}",
+            f"FULLSCREEN: {'Yes' if self.fullscreen else 'No'}"
         ]
         
-        # Calculate dimensions for debug panel
-        bg_width = 160  # Reduced width
+        # Calculate dimensions for debug panel - wider to fit more text
+        bg_width = 200  # Increased width for more detailed info
         bg_height = (len(debug_info) * (self.assets.small_font_size + 5)) + 10
         
         # Draw solid background (right-aligned but moved left a bit)
         bg_rect = pygame.Rect(
-            self.width - bg_width - 30,  # More padding on right side
+            self.width - bg_width - 20,  # Adjusted padding
             self.height - self.top_panel_height - bg_height - 10,
             bg_width,
             bg_height
@@ -513,13 +566,16 @@ class UINode:
         
         # Render each line of debug info
         for i, info in enumerate(debug_info):
+            # Use different colors for headers and values
+            text_color = WHITE if info == "" or ":" not in info else LIGHT_GRAY
+            
             self.assets.render_text(
                 self.bottom_surface,
                 info,
                 "small",
-                self.width - bg_width - 25,  # More padding on right side for text
+                self.width - bg_width - 15,  # Adjusted padding for text
                 self.height - self.top_panel_height - bg_height + (i * (self.assets.small_font_size + 5)) + 5,
-                LIGHT_GRAY
+                text_color
             )
 
 
