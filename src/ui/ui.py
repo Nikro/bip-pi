@@ -12,7 +12,6 @@ import time
 import threading
 from typing import Dict, Any, List, Tuple, Optional
 
-# Import PyGame - more compatible and easier to optimize than direct SDL2
 import pygame
 
 from ..common import (
@@ -460,28 +459,31 @@ class UINode:
         )
         
         # Clear only the area we're updating
-        surface_start = time.perf_counter()
-        self.top_surface.fill(BLACK, update_rect)
-        self.debug_metrics["last_surface_time"] = (time.perf_counter() - surface_start) * 1000
-        
-        # Blit the pre-rendered animation frame
-        blit_start = time.perf_counter()
-        self.top_surface.blit(animation_frame, (center_x, center_y))
-        self.debug_metrics["last_blit_time"] = (time.perf_counter() - blit_start) * 1000
-        
-        # Record total rendering time
-        frame_time = (time.perf_counter() - start_time) * 1000  # Convert to ms
-        self.debug_metrics["frame_render_times"].append(frame_time)
-        
-        # Keep only the last 10 frame times
-        if len(self.debug_metrics["frame_render_times"]) > 10:
-            self.debug_metrics["frame_render_times"].pop(0)
-        
-        # Calculate average render time
-        if self.debug_metrics["frame_render_times"]:
-            self.debug_metrics["avg_render_time"] = sum(
-                self.debug_metrics["frame_render_times"]
-            ) / len(self.debug_metrics["frame_render_times"])
+        try:
+            surface_start = time.perf_counter()
+            self.top_surface.fill(BLACK, update_rect)
+            self.debug_metrics["last_surface_time"] = (time.perf_counter() - surface_start) * 1000
+            
+            # Blit the pre-rendered animation frame
+            blit_start = time.perf_counter()
+            self.top_surface.blit(animation_frame, (center_x, center_y))
+            self.debug_metrics["last_blit_time"] = (time.perf_counter() - blit_start) * 1000
+            
+            # Record total rendering time
+            frame_time = (time.perf_counter() - start_time) * 1000  # Convert to ms
+            self.debug_metrics["frame_render_times"].append(frame_time)
+            
+            # Keep only the last 10 frame times
+            if len(self.debug_metrics["frame_render_times"]) > 10:
+                self.debug_metrics["frame_render_times"].pop(0)
+            
+            # Calculate average render time
+            if self.debug_metrics["frame_render_times"]:
+                self.debug_metrics["avg_render_time"] = sum(
+                    self.debug_metrics["frame_render_times"]
+                ) / len(self.debug_metrics["frame_render_times"])
+        except Exception as e:
+            logger.error(f"Error during rendering top panel: {e}")
     
     def _render_bottom_panel(self) -> None:
         """Render the bottom panel with information."""
