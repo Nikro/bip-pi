@@ -198,6 +198,10 @@ chmod 644 "${HOME_DIR}/.conkyrc" || echo "Warning: Unable to set permissions on 
 ###############################################################################
 separator "Setting up Python environment"
 
+# Install build dependencies needed for Python packages
+separator "Installing build dependencies"
+sudo apt install -y libffi-dev build-essential python3-dev
+
 # Check Python version
 PYTHON_VERSION=$(python3 --version 2>/dev/null | cut -d ' ' -f 2) || PYTHON_VERSION="0.0.0"
 PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d '.' -f 1)

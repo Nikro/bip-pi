@@ -21,6 +21,20 @@ log_message() {
     echo "[$timestamp] [$level] $message" >> "$ERROR_LOG"
 }
 
+# Check if this is the first run after installation
+if [ ! -f "${SCRIPT_DIR}/.first_run_complete" ]; then
+    log_message "INFO" "First run detected. Performing additional setup..."
+    
+    # Try to ensure all required libraries are installed
+    if [ -x "$(command -v apt-get)" ]; then
+        log_message "INFO" "Installing required development libraries..."
+        sudo apt-get install -y libffi-dev build-essential python3-dev
+        
+        # Create marker file to avoid repeating this step
+        touch "${SCRIPT_DIR}/.first_run_complete"
+    fi
+fi
+
 # Function to check for required files
 check_required_files() {
     log_message "INFO" "Checking for required configuration files..."
