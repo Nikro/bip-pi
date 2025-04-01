@@ -1,8 +1,5 @@
 """
 UI node for the reactive companion system using a lightweight rendering approach.
-
-This implementation uses PyGame for better compatibility and optimization for 
-resource-constrained hardware like the Orange Pi.
 """
 
 import argparse
@@ -10,20 +7,12 @@ import os
 import sys
 import time
 import threading
+import logging
 from typing import Dict, Any, List, Tuple, Optional
 
-# Import PyGame at the module level - add error checking
-try:
-    import pygame
-    from pygame import FULLSCREEN, HWSURFACE, DOUBLEBUF, SRCALPHA
-    HAS_PYGAME = True
-except ImportError as e:
-    print(f"ERROR: Failed to import PyGame: {e}")
-    print("Please make sure PyGame is installed correctly:")
-    print("  pip install pygame")
-    HAS_PYGAME = False
-    # Define fallbacks to avoid NameError if import fails
-    FULLSCREEN, HWSURFACE, DOUBLEBUF, SRCALPHA = 0x1, 0x2, 0x4, 0x8
+# Simple direct import - no try/except that could cause scope issues
+import pygame
+from pygame.locals import FULLSCREEN, HWSURFACE, DOUBLEBUF, SRCALPHA
 
 from ..common import (
     setup_logger, PublisherBase, SubscriberBase, RequestorBase,
@@ -34,29 +23,17 @@ from .state import UIState, SystemMode, global_state
 # Setup logger with proper path handling
 logger = setup_logger("ui")
 
-# Add file handler to log UI events using a path relative to the script location
-import logging
-import os
+# Ensure log directory exists and add file handler
+script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+log_dir = os.path.join(script_dir, "logs")
 
-# Get the actual script directory rather than using hardcoded path
-SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-LOG_DIR = os.path.join(SCRIPT_DIR, "logs")
-
-# Ensure log directory exists
-try:
-    if not os.path.exists(LOG_DIR):
-        os.makedirs(LOG_DIR)
-    
-    # Now create the file handler with the correct path
-    file_handler = logging.FileHandler(os.path.join(LOG_DIR, "ui.log"))
-    file_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    logger.info(f"UI logger initialized. Logging to: {os.path.join(LOG_DIR, 'ui.log')}")
-except Exception as e:
-    print(f"WARNING: Could not set up file logging: {e}")
-    print(f"Continuing with console logging only")
+os.makedirs(log_dir, exist_ok=True)
+file_handler = logging.FileHandler(os.path.join(log_dir, "ui.log"))
+file_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+logger.info(f"UI logger initialized. Logging to: {os.path.join(log_dir, 'ui.log')}")
 
 # Define colors
 BLACK = (0, 0, 0)
@@ -244,84 +221,70 @@ class UINode:
     
     def __init__(self, config_path: Optional[str] = None):
         """Initialize the optimized UI node using native resolution."""
-        # First, ensure PyGame is available.
-        if not HAS_PYGAME:
-            logger.error("PyGame is not available. Cannot initialize UI.")
-            raise ImportError("PyGame module is required but not installed.")
-            
+        logger.info("Initializing UI node...")
+        
         # Load configuration
         self.config = load_config(config_path) if config_path else {}
         
         # Initialize PyGame
+        logger.info("Initializing pygame...")
         pygame.init()
+        
+        # Display init
         pygame.display.init()
-        info = pygame.display.Info()
         
-        # Use configured native resolution values without scaling.
-        base_width = self.config.get("ui", {}).get("width", 1050)    # Native width
-        base_height = self.config.get("ui", {}).get("height", 1680)  # Native height
-        
-        target_width = base_width      # Use native width
-        target_height = base_height    # Use native height
-        
-        # Store dimensions as instance variables.
-        self.width = target_width
-        self.height = target_height
-        
-        # Additional UI settings.
+        # Use configured native resolution without scaling
+        self.width = self.config.get("ui", {}).get("width", 800)
+        self.height = self.config.get("ui", {}).get("height", 600)
         self.fps = self.config.get("ui", {}).get("fps", 30)
-        self.fullscreen = self.config.get("ui", {}).get("fullscreen", True)
+        self.fullscreen = self.config.get("ui", {}).get("fullscreen", False)  # Start windowed for debugging
         
-        logger.info(f"Base resolution: {base_width}x{base_height}")
-        logger.info(f"Using native resolution: {target_width}x{target_height}")
+        logger.info(f"Setting up display with resolution: {self.width}x{self.height}")
         
-        # Create window with hardware acceleration using native resolution.
+        # Create window
+        flags = 0
         if self.fullscreen:
-            flags = FULLSCREEN | HWSURFACE
-            self.screen = pygame.display.set_mode((target_width, target_height), flags)
-        else:
-            flags = HWSURFACE | DOUBLEBUF
-            self.screen = pygame.display.set_mode((target_width, target_height), flags)
+            flags |= FULLSCREEN
         
+        self.screen = pygame.display.set_mode((self.width, self.height), flags)
         pygame.display.set_caption("Reactive Companion")
         
-        # Create subsurfaces for partial updates.
-        self.top_panel_height = target_height // 2
-        self.top_surface = self.screen.subsurface((0, 0, target_width, self.top_panel_height))
-        self.bottom_surface = self.screen.subsurface(
-            (0, self.top_panel_height, target_width, target_height - self.top_panel_height))
+        # Get actual screen size (may differ from requested size)
+        actual_width, actual_height = self.screen.get_size()
+        logger.info(f"Actual display size: {actual_width}x{actual_height}")
         
-        # Create cached background for top panel to avoid redrawing.
-        self.top_bg = pygame.Surface((target_width, self.top_panel_height))
-        self.top_bg.fill(BLACK)
+        # Update dimensions to actual size
+        self.width = actual_width
+        self.height = actual_height
         
-        # Initialize state.
+        # Create subsurfaces for partial updates
+        self.top_panel_height = self.height // 2
+        self.top_surface = self.screen.subsurface((0, 0, self.width, self.top_panel_height))
+        self.bottom_surface = self.screen.subsurface((0, self.top_panel_height, 
+                                                     self.width, self.height - self.top_panel_height))
+        
+        # Initialize state
         self.state = global_state
         self.state.show_debug = True
         
-        # Load assets.
-        self.assets = UIAssets(target_width, target_height)
+        # Load assets
+        self.assets = UIAssets(self.width, self.height)
         
-        # Create background monitor thread.
+        # Create background monitor thread
         self.monitor = BackgroundMonitor(self)
         self.monitor.start()
         
-        # Communication setup.
+        # Communication setup
         self.publisher = PublisherBase(DEFAULT_PORTS["ui_pub"])
         self.subscriber = SubscriberBase("localhost", DEFAULT_PORTS["awareness_pub"])
         
-        # Animation state.
+        # Animation state
         self.current_frame = 0
         self.frame_count = 0
         self.bottom_update_counter = 0
         self.last_frame_time = time.time()
-        self.frame_duration = 1.0 / self.fps
         
-        # Running flag.
-        self.is_running = False
-        logger.info(f"UI node initialized with native resolution {target_width}x{target_height}")
-        
-        # Create debug metrics dictionary to track rendering details.
+        # Create debug metrics dictionary
         self.debug_metrics = {
             "frame_render_times": [],
             "avg_render_time": 0.0,
@@ -332,20 +295,10 @@ class UINode:
             "last_surface_time": 0.0,
         }
         
-        # Try to detect if we're using gfxdraw.
-        try:
-            import pygame.gfxdraw
-            self.debug_metrics["using_gfxdraw"] = True
-        except ImportError:
-            pass
-            
-        # Calculate animation cache size.
-        bytes_per_pixel = 4  # RGBA.
-        frame_count = 10  # Number of animation frames.
-        self.debug_metrics["animation_cache_size"] = (
-            (self.assets.animation_size ** 2) * bytes_per_pixel * frame_count / 1024
-        )  # Size in KB.
-
+        # Running flag
+        self.is_running = False
+        logger.info("UI node initialization complete")
+    
     def start(self) -> None:
         """Start the UI node."""
         if self.is_running:
@@ -616,11 +569,10 @@ class UINode:
 def main() -> None:
     """Main entry point for the UI node."""
     try:
-        # Check for PyGame availability before proceeding
-        if not HAS_PYGAME:
-            print("ERROR: PyGame is not available. Cannot start UI.")
-            sys.exit(1)
-
+        # Print Python version and module paths for debugging
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"Pygame version: {pygame.version.ver}")
+        
         parser = argparse.ArgumentParser(description="UI Node")
         parser.add_argument("--config", type=str, help="Path to configuration file")
         args = parser.parse_args()
@@ -628,11 +580,11 @@ def main() -> None:
         # Create and start the UI node
         node = UINode(args.config)
         node.start()
-    except ImportError as e:
-        print(f"ERROR: Required module not available: {e}")
-        sys.exit(1)
     except Exception as e:
+        logger.error(f"Error starting UI: {e}", exc_info=True)
         print(f"ERROR: Failed to start UI: {e}")
+        
+        # Print traceback for better debugging
         import traceback
         traceback.print_exc()
         sys.exit(1)

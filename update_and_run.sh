@@ -156,6 +156,16 @@ if command -v poetry &>/dev/null; then
     
     # Run the UI application with Poetry
     log_message "INFO" "Starting UI application with Poetry..."
+    
+    # Ensure we have diagnostic output in case of failure
+    log_message "INFO" "Python version: $(python --version 2>&1)"
+    log_message "INFO" "PyGame presence: $(pip show pygame 2>&1 || echo 'Not installed')"
+    
+    # Add explicit environment activation
+    if [ -f ".venv/bin/activate" ]; then
+        source .venv/bin/activate
+    fi
+    
     poetry run python -m src.ui.ui
     
     exit_code=$?
@@ -165,7 +175,17 @@ else
     log_message "INFO" "Poetry not found. Using virtual environment directly..."
     
     if [ -f ".venv/bin/activate" ]; then
+        # Activate the virtual environment and verify it worked
         source .venv/bin/activate
+        log_message "INFO" "Virtual environment activated: $(which python)"
+        log_message "INFO" "Python version: $(python --version 2>&1)"
+        log_message "INFO" "PyGame presence: $(pip show pygame 2>&1 || echo 'Not installed')"
+        
+        # Ensure pygame is installed
+        if ! python -c "import pygame" 2>/dev/null; then
+            log_message "WARNING" "PyGame not found in virtual environment. Attempting to install..."
+            pip install pygame
+        fi
         
         # Start the UI application directly
         log_message "INFO" "Starting UI application with Python..."
