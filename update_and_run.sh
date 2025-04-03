@@ -117,49 +117,70 @@ detect_hardware_acceleration() {
     local has_opengl=0
     local has_lima=0
     local has_mali=0
-    local hwsurface_value=0
-    local doublebuf_value=0
-    local retval=1
+    local hwsurface_value=1  # Force hardware surface by default
+    local doublebuf_value=1  # Force double buffering by default
+    local retval=0           # Assume hardware acceleration is available
     
-    # Check for Lima/Mali400 driver
-    if grep -q "lima" /var/log/Xorg.0.log 2>/dev/null || grep -q "mali" /var/log/Xorg.0.log 2>/dev/null; then
-        log_message "INFO" "Lima/Mali400 GPU driver detected"
+    # Install glxinfo if not present
+    if ! command -v glxinfo &>/dev/null; then
+        log_message "INFO" "glxinfo not found, installing mesa-utils package..."
+        sudo apt-get install -y mesa-utils 2>/dev/null || log_message "WARNING" "Failed to install mesa-utils"
+    fi
+    
+    # More aggressive check for Lima/Mali400 driver in various locations
+    if grep -q -E "lima|mali" /var/log/Xorg.*.log 2>/dev/null || 
+       grep -q -E "lima|mali" /var/log/Xorg.0.log 2>/dev/null || 
+       lsmod | grep -q -E "lima|mali" 2>/dev/null; then
+        log_message "INFO" "Lima/Mali400 GPU driver detected in system logs or kernel modules"
         has_lima=1
     fi
     
     # Check for generic OpenGL support with glxinfo
     if command -v glxinfo &>/dev/null; then
-        if glxinfo | grep -i "direct rendering: yes" > /dev/null; then
+        # Run with DISPLAY explicitly set (works better with SSH sessions)
+        local gl_output
+        # Try different display options if DISPLAY is not set
+        if [ -z "$DISPLAY" ]; then
+            DISPLAY=:0 gl_output=$(DISPLAY=:0 glxinfo 2>/dev/null) || gl_output=""
+        else
+            gl_output=$(glxinfo 2>/dev/null) || gl_output=""
+        fi
+        
+        # Check for direct rendering
+        if echo "$gl_output" | grep -i "direct rendering: yes" > /dev/null; then
             log_message "INFO" "OpenGL hardware acceleration available"
             has_opengl=1
-            hwsurface_value=1
-            doublebuf_value=1
-            retval=0
         else
             log_message "INFO" "Direct rendering not available via glxinfo"
         fi
         
         # Get OpenGL vendor and renderer information
-        local gl_vendor=$(glxinfo | grep "OpenGL vendor" | sed 's/^.*: //')
-        local gl_renderer=$(glxinfo | grep "OpenGL renderer" | sed 's/^.*: //')
-        
-        if [[ "$gl_renderer" == *"Mali"* ]] || [[ "$gl_renderer" == *"lima"* ]]; then
-            log_message "INFO" "Mali/Lima GPU detected: $gl_renderer"
-            has_mali=1
-        fi
+        local gl_vendor=$(echo "$gl_output" | grep "OpenGL vendor" | sed 's/^.*: //')
+        local gl_renderer=$(echo "$gl_output" | grep "OpenGL renderer" | sed 's/^.*: //')
         
         log_message "INFO" "OpenGL vendor: $gl_vendor"
         log_message "INFO" "OpenGL renderer: $gl_renderer"
-    else
-        log_message "WARNING" "glxinfo not available - fallback detection method"
         
-        # Alternative detection methods if glxinfo isn't available
-        if [ $has_lima -eq 1 ]; then
-            log_message "INFO" "Using Lima/Mali driver without glxinfo validation"
-            hwsurface_value=1
-            doublebuf_value=1
-            retval=0
+        if [[ -n "$gl_renderer" ]] && { [[ "$gl_renderer" == *"Mali"* ]] || [[ "$gl_renderer" == *"lima"* ]]; }; then
+            log_message "INFO" "Mali/Lima GPU detected: $gl_renderer"
+            has_mali=1
         fi
+    else
+        log_message "WARNING" "glxinfo not available - using aggressive fallback detection"
+        
+        # Always assume Lima is available on ARM devices in fallback mode
+        if grep -q "ARM" /proc/cpuinfo 2>/dev/null || grep -q "aarch64" /proc/cpuinfo 2>/dev/null; then
+            log_message "INFO" "ARM CPU detected, assuming Mali/Lima GPU is available"
+            has_lima=1
+        fi
+    fi
+    
+    # Force hardware acceleration for Orange Pi
+    if grep -q -i "orange" /proc/device-tree/model 2>/dev/null || grep -q -i "allwinner" /proc/device-tree/compatible 2>/dev/null; then
+        log_message "INFO" "Orange Pi/Allwinner device detected - forcing Mali/Lima hardware acceleration"
+        has_lima=1
+        has_mali=1
+        has_opengl=1
     fi
     
     # Export variables for both runtime and potential compilation
@@ -167,28 +188,43 @@ detect_hardware_acceleration() {
     export PYGAME_HWSURFACE=$hwsurface_value
     export PYGAME_DOUBLEBUF=$doublebuf_value
     
-    # Export additional variables for better OpenGL support
+    # Export additional variables for better OpenGL support - ALWAYS enabled on Lima/Mali
     if [ $has_opengl -eq 1 ] || [ $has_lima -eq 1 ] || [ $has_mali -eq 1 ]; then
         log_message "INFO" "Setting OpenGL environment variables"
-        export SDL_VIDEODRIVER="x11"  # Force X11 for better OpenGL support
-        export SDL_VIDEO_X11_VISUALID=""  # Let SDL choose the best visual
-        export MESA_GL_VERSION_OVERRIDE="3.0"  # Request OpenGL 3.0 compatibility
+        export SDL_VIDEODRIVER="x11"        # Force X11 for better OpenGL support
+        export SDL_VIDEO_X11_VISUALID=""    # Let SDL choose the best visual
+        export MESA_GL_VERSION_OVERRIDE="3.0" # Request OpenGL 3.0 compatibility
         
-        # Mali/Lima specific optimizations
+        # Mali/Lima specific optimizations - ALWAYS enabled for ARM devices
         if [ $has_lima -eq 1 ] || [ $has_mali -eq 1 ]; then
             log_message "INFO" "Applying Mali/Lima specific optimizations"
-            export LIMA_DEBUG=1  # Enable Lima debug for better error reporting
-            export PAN_MESA_DEBUG=sync  # Synchronization mode for Panfrost/Lima
-            export MESA_DEBUG=""  # Disable Mesa debug for performance
             
-            # Optimize for Mali texture handling
-            export MESA_GLSL_CACHE_DISABLE=true
-            export GALLIUM_DRIVER="lima"  # Force Lima driver when available
+            # Core Lima driver configuration
+            export GALLIUM_DRIVER="lima"    # Force Lima driver when available
+            export LIMA_DEBUG=0             # Disable Lima debug for better performance
+            export MESA_DEBUG=0             # Disable Mesa debug for performance
+            export PAN_MESA_DEBUG=0         # Disable Panfrost debug for performance
+            
+            # Performance-focused optimizations
+            export MESA_GLSL_CACHE_DISABLE=true  # Disable shader cache for consistent behavior
+            export MESA_NO_ERROR=1          # Disable error checking for performance
+            export vblank_mode=0            # Disable vertical sync for max performance
+            
+            # Memory optimizations
+            export MESA_SHADER_CACHE_DISABLE=true # Disable shader cache to save memory
+            export EGL_PLATFORM=x11         # Force EGL to use X11 platform
         fi
+    else
+        log_message "WARNING" "No hardware acceleration detected - performance will be limited"
     fi
     
-    # Export AVX2 detection for both runtime and compilation
+    # Always export AVX2 detection for better compilation
     export PYGAME_DETECT_AVX2=1
+    
+    # Set additional experimental performance flags
+    export SDL_RENDER_BATCHING=1           # Enable render batching for better performance
+    export SDL_HINT_RENDER_BATCHING=1      # More explicit hint
+    export SDL_FRAMEBUFFER_ACCELERATION=1  # Force framebuffer acceleration
     
     return $retval
 }
