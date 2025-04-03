@@ -180,9 +180,9 @@ class UIAssets:
         animation_size = self.animation_size
         
         for i in range(num_frames):
-            # Calculate subtle pulse factor
+            # Calculate subtle pulse factor - improved smoothness with better range
             phase = (i / num_frames) * 2 * math.pi
-            pulse_factor = 0.92 + 0.08 * ((math.sin(phase) + 1) / 2)
+            pulse_factor = 0.85 + 0.15 * ((math.sin(phase) + 1) / 2)
             
             # Create optimized surface with pixel alpha
             surface = pygame.Surface((animation_size, animation_size), flags=SRCALPHA)
@@ -195,11 +195,12 @@ class UIAssets:
             
             # Use the most efficient drawing method available
             if HAS_GFXDRAW:
-                # Use gfxdraw for better antialiasing and performance
+                # Two-pass rendering for better appearance but still efficient
+                # First draw filled circle
                 pygame.gfxdraw.filled_circle(
                     surface, center_x, center_y, radius, color
                 )
-                # Add an antialiased edge for smoother appearance
+                # Then add an antialiased edge for smoother appearance
                 pygame.gfxdraw.aacircle(
                     surface, center_x, center_y, radius, color
                 )
@@ -207,7 +208,7 @@ class UIAssets:
                 # Standard circle drawing as fallback
                 pygame.draw.circle(surface, color, (center_x, center_y), radius)
             
-            # Convert surface for faster blitting if not using alpha
+            # Convert surface for faster blitting - ensure alpha is preserved
             frames.append(surface.convert_alpha())
         
         return frames
@@ -332,23 +333,17 @@ class UINode:
     
     def _configure_environment(self):
         """Configure environment variables for optimal performance."""
-        # Force X11 driver for better resolution control
-        os.environ['SDL_VIDEODRIVER'] = 'x11'
+        # Let PyGame detect most settings automatically
         
-        # Enable OpenGL hardware acceleration if available
-        os.environ['SDL_OPENGL'] = '1'
-        
-        # Ensure we detect AVX2 instructions if available
-        os.environ['PYGAME_DETECT_AVX2'] = '1'
-        
-        # Hide the PyGame welcome message
+        # Only set critical variables that won't conflict with Mali400/Lima
         os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
         
-        # Configure SDL to use available hardware acceleration
-        os.environ['SDL_HINT_RENDER_SCALE_QUALITY'] = '1'
+        # Ensure hardware detection is enabled
+        os.environ['PYGAME_DETECT_AVX2'] = '1'
         
-        # Add hint for using OpenGL for rendering acceleration
-        os.environ['SDL_HINT_RENDER_DRIVER'] = 'opengl'
+        # Force X11 for display driver as it works well with Mali400/Lima
+        if 'SDL_VIDEODRIVER' not in os.environ:
+            os.environ['SDL_VIDEODRIVER'] = 'x11'
     
     def _create_display_surface(self):
         """Create optimized display surface with appropriate flags."""

@@ -117,11 +117,9 @@ detect_hardware_acceleration() {
     local has_opengl=0
     local has_lima=0
     local has_mali=0
-    local hwsurface_value=1  # Force hardware surface by default
-    local doublebuf_value=1  # Force double buffering by default
     
-    # First check for Lima/Mali400 driver in kernel modules - most reliable method
-    if lsmod | grep -q -E 'lima|mali' 2>/dev/null; then
+    # Check for Lima/Mali400 driver in kernel modules - most reliable method
+    if lsmod | grep -q -E 'lima|mali|gpu_sched|drm_shmem_helper' 2>/dev/null; then
         log_message "INFO" "Lima/Mali GPU driver detected as loaded kernel module"
         has_lima=1
     fi
@@ -151,56 +149,49 @@ detect_hardware_acceleration() {
         fi
     else
         log_message "WARNING" "glxinfo not available - using hardware detection methods"
+        
+        # Try to install mesa-utils if missing
+        if command -v apt-get &>/dev/null; then
+            log_message "INFO" "Installing mesa-utils for better GPU detection..."
+            sudo apt-get install -y mesa-utils &>/dev/null
+        fi
     fi
     
     # Check for specific Mali400 hardware on Allwinner SoCs
     if grep -q -E "Allwinner|sun8i" /proc/cpuinfo 2>/dev/null || 
        grep -q -E "Allwinner|sun8i" /proc/device-tree/compatible 2>/dev/null; then
-        log_message "INFO" "Allwinner SoC detected with Mali400 GPU - forcing hardware acceleration"
+        log_message "INFO" "Allwinner SoC detected with Mali400 GPU - enabling hardware acceleration"
         has_lima=1
         has_mali=1
         has_opengl=1
     fi
     
-    # Export variables for both runtime and potential compilation
+    # Set minimal environment variables for Mali400/Lima support
+    # Let PyGame detect and configure most settings automatically
+    
+    # Forces the PyGame hardwareaccel flag to be used
+    export PYGAME_HWSURFACE=1
+    export PYGAME_DOUBLEBUF=1
+    
+    # Ensure display setup works properly
     export PYGAME_DISPLAY=:0
-    export PYGAME_HWSURFACE=$hwsurface_value
-    export PYGAME_DOUBLEBUF=$doublebuf_value
+    export SDL_VIDEODRIVER="x11"
     
-    # Export additional variables for better OpenGL support
-    if [ $has_opengl -eq 1 ] || [ $has_lima -eq 1 ] || [ $has_mali -eq 1 ]; then
-        log_message "INFO" "Setting OpenGL environment variables for Mali400/Lima"
-        
-        # Force X11 display driver for best GPU compatibility
-        export SDL_VIDEODRIVER="x11"
-        
-        # Lima driver specific configuration - optimized for Mali400
-        export GALLIUM_DRIVER="lima"
-        export MESA_GL_VERSION_OVERRIDE="2.1"  # Match actual supported version
-        export MESA_GLSL_VERSION_OVERRIDE="120"  # GLSL version compatible with GL 2.1
-        
-        # Performance optimizations
-        export vblank_mode=0  # Disable vertical sync for higher FPS
-        export MESA_NO_ERROR=1  # Disable error checking for performance
-        
-        # Memory optimizations for resource-constrained device
-        export MESA_SHADER_CACHE_DISABLE=true  # Disable shader cache to save memory
-        export LIMA_DEBUG=0  # Disable Lima debug messages
-        export MESA_DEBUG=0  # Disable Mesa debug for performance
-        
-        # SDL specific optimizations
-        export SDL_RENDER_BATCHING=1  # Enable render batching
-        export SDL_HINT_RENDER_BATCHING=1
-        export SDL_HINT_RENDER_VSYNC=0  # Disable vsync in SDL
-        export SDL_RENDER_DRIVER=opengl  # Force OpenGL renderer
-        export SDL_HINT_VIDEO_X11_FORCE_EGL=0  # Don't use EGL, use GLX
-        
-        # Texture memory optimization
-        export SDL_HINT_RENDER_SCALE_QUALITY=0  # Use nearest filtering (faster)
-    fi
-    
-    # Always export AVX2 detection for better compilation
+    # Ensure AVX2 detection for better performance
     export PYGAME_DETECT_AVX2=1
+    
+    # Only set critical driver variables if hardware was detected
+    if [ $has_opengl -eq 1 ] || [ $has_lima -eq 1 ] || [ $has_mali -eq 1 ]; then
+        log_message "INFO" "Setting minimal hardware acceleration variables for Mali400/Lima"
+        
+        # Set only essential variables and let PyGame auto-detect the rest
+        export SDL_HINT_RENDER_DRIVER="opengl"
+        export SDL_RENDER_DRIVER="opengl"
+        
+        # These settings worked well in our testing
+        export SDL_HINT_RENDER_SCALE_QUALITY="0"  # Nearest neighbor (faster)
+        export SDL_HINT_RENDER_BATCHING="1"       # Enable batching for better performance
+    fi
 }
 
 # Detect and configure hardware acceleration
