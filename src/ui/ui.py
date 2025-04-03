@@ -322,7 +322,6 @@ class UINode:
         
         # Create subsurfaces for partial updates
         self.top_panel_height = self.height // 2
-        self._create_panel_surfaces()
         
         # Initialize state tracking
         self.state = global_state
@@ -384,37 +383,39 @@ class UINode:
         """
         flags = 0
         
-        # Enable OpenGL rendering - critical for Mali400/Lima hardware acceleration
+        # Enable OpenGL rendering for Mali400/Lima hardware acceleration
         flags |= pygame.OPENGL
         
         # Add fullscreen if configured
         if self.fullscreen:
             flags |= pygame.FULLSCREEN
         
-        # Add scaling support for better resolution handling
-        flags |= pygame.SCALED
+        # Add double buffering with OpenGL for smooth animation
+        flags |= pygame.DOUBLEBUF
         
-        # HWSURFACE is obsolete in pygame 2.0+ but kept for backwards compatibility
-        # Only add it if we're not using OpenGL as it's redundant with OPENGL flag
+        # Add scaling support if needed
+        if self.config.get("ui", {}).get("allow_scaling", False):
+            flags |= pygame.SCALED
+            logger.info("Display scaling enabled")
+        
+        # Only use software rendering if hardware acceleration is explicitly disabled
         if not self.use_hw_accel:
             logger.info("Hardware acceleration disabled - using software rendering")
             flags &= ~pygame.OPENGL  # Remove OpenGL flag
             flags |= pygame.SWSURFACE  # Use software surface instead
         else:
-            # Add double buffering with OpenGL for smooth animation
-            flags |= pygame.DOUBLEBUF
             logger.info("Hardware acceleration enabled with OpenGL renderer")
         
         # Create the display with the configured flags
         try:
             if self.vsync:
-                # Use vsync to prevent screen tearing - only works with OpenGL
+                # Use vsync to prevent screen tearing with OpenGL
                 logger.info("Creating display with vsync enabled")
-                pygame.display.set_mode((self.width, self.height), flags, vsync=1)
+                self.screen = pygame.display.set_mode((self.width, self.height), flags, vsync=1)
             else:
                 # Without vsync for maximum frame rate
                 logger.info("Creating display without vsync for maximum performance")
-                pygame.display.set_mode((self.width, self.height), flags)
+                self.screen = pygame.display.set_mode((self.width, self.height), flags)
             
             # Log the actual flags that were used
             logger.info(f"Display created with flags: {flags}")
@@ -423,11 +424,12 @@ class UINode:
             logger.info("Falling back to software rendering")
             
             # Fall back to software rendering if OpenGL fails
-            fallback_flags = pygame.SCALED
+            fallback_flags = 0
             if self.fullscreen:
                 fallback_flags |= pygame.FULLSCREEN
             
-            pygame.display.set_mode((self.width, self.height), fallback_flags)
+            self.screen = pygame.display.set_mode((self.width, self.height), fallback_flags)
+            logger.info(f"Created fallback display with flags: {fallback_flags}")
     
     def _handle_resolution_mismatch(self, actual_width, actual_height):
         """Handle resolution mismatch by trying alternate approaches."""
@@ -454,19 +456,6 @@ class UINode:
         # Update dimensions to actual size
         self.width = actual_width
         self.height = actual_height
-    
-    def _create_panel_surfaces(self):
-        """Create panel surfaces for optimized partial screen updates."""
-        self.top_surface = self.screen.subsurface((0, 0, self.width, self.top_panel_height))
-        self.bottom_surface = self.screen.subsurface((0, self.top_panel_height, 
-                                                     self.width, self.height - self.top_panel_height))
-        
-        # Create cached background surfaces
-        self.top_bg = pygame.Surface((self.width, self.top_panel_height)).convert()
-        self.top_bg.fill(BLACK)
-        
-        self.bottom_bg = pygame.Surface((self.width, self.height - self.top_panel_height)).convert()
-        self.bottom_bg.fill(BLACK)
     
     def _initialize_animation_state(self):
         """Initialize animation state and performance metrics."""
@@ -532,29 +521,32 @@ class UINode:
         logger.info("UI node stopped")
     
     def _main_loop(self) -> None:
-        """Optimized main loop using dirty rectangle updates for better performance."""
+        """
+        Optimized main loop for OpenGL hardware-accelerated rendering.
+        Uses full screen updates via pygame.display.flip() as required by the OpenGL renderer.
+        """
         # Use pygame's time management for more precise timing
         clock = pygame.time.Clock()
         
-        # Track areas that need updating
-        dirty_rects = []
+        # For OpenGL mode, we'll render directly to the screen surface
+        # No subsurfaces or dirty rects as they aren't compatible with OpenGL mode
         
-        # Initial full screen draw
-        self.top_surface.blit(self.top_bg, (0, 0))
-        self.bottom_surface.blit(self.bottom_bg, (0, 0))
-        self._render_top_panel(dirty_rects)
-        self._render_bottom_panel(dirty_rects)
-        self._render_debug(dirty_rects)
-        
-        # First frame needs a full update
+        # Initial fill of the background
+        self.screen.fill(BLACK)
         pygame.display.flip()
+        
+        # Create drawing surfaces compatible with OpenGL mode
+        # These are standard surfaces that we'll blit to the screen
+        self.top_surface = pygame.Surface((self.width, self.top_panel_height))
+        self.bottom_surface = pygame.Surface((self.width, self.height - self.top_panel_height))
+        
+        # Animation position
+        anim_center_x = (self.width - self.assets.animation_size) // 2
+        anim_center_y = (self.top_panel_height - self.assets.animation_size) // 2
         
         while self.is_running:
             # Time tracking for this frame
             frame_start = time.perf_counter()
-            
-            # Clear dirty rects for this frame
-            dirty_rects.clear()
             
             # Handle events
             self._process_events()
@@ -565,37 +557,89 @@ class UINode:
             # Update animation state
             self._update_animation()
             
-            # Render top panel with animation (updates every frame)
-            self._render_top_panel(dirty_rects)
+            # Clear surfaces
+            self.top_surface.fill(BLACK)
             
-            # Update bottom panel less frequently (every 10 frames)
+            # Only update bottom panel less frequently (every 10 frames)
             self.bottom_update_counter += 1
             if self.bottom_update_counter >= 10:
-                # Render bottom panel
-                self._render_bottom_panel(dirty_rects)
+                self.bottom_surface.fill(BLACK)
+                self.bottom_update_counter = 0
+            
+            # Get current animation frame
+            animation_frame = self.assets.animation_frames[self.current_frame]
+            
+            # Draw animation to top surface
+            self.top_surface.blit(animation_frame, (anim_center_x, anim_center_y))
+            
+            # Render bottom panel and debug info less frequently
+            if self.bottom_update_counter == 0:
+                # Draw separator line
+                pygame.draw.line(
+                    self.bottom_surface, 
+                    GRAY,
+                    (0, 0),
+                    (self.width, 0)
+                )
+                
+                # Render mode text and status information
+                mode = self.state.mode
+                self.assets.render_text(
+                    self.bottom_surface,
+                    f"Mode: {mode.name}",
+                    "title",
+                    20, 
+                    20,
+                    WHITE
+                )
+                
+                # System status information
+                y_pos = 20 + self.assets.title_font_size + 10
+                status_info = [
+                    f"System Status: Online",
+                    f"Temperature: {self.monitor.temperature:.1f}°C"
+                ]
+                
+                for info in status_info:
+                    self.assets.render_text(
+                        self.bottom_surface,
+                        info,
+                        "text",
+                        20,
+                        y_pos,
+                        LIGHT_GRAY
+                    )
+                    y_pos += self.assets.text_font_size + 5
                 
                 # Render debug if enabled
                 if self.state.show_debug:
-                    self._render_debug(dirty_rects)
-                
-                self.bottom_update_counter = 0
+                    self._render_debug_for_opengl()
             
-            # Update the display - only update dirty rectangles when possible
-            if dirty_rects:
-                # Store count for debug
-                self.debug_metrics["dirty_rects_count"] = len(dirty_rects)
-                
-                # Use update for partial screen updates (much faster than flip)
-                pygame.display.update(dirty_rects)
-            else:
-                # Fallback to flip if no dirty rects (rare)
-                pygame.display.flip()
+            # Blit surfaces to the main screen
+            self.screen.blit(self.top_surface, (0, 0))
+            self.screen.blit(self.bottom_surface, (0, self.top_panel_height))
+            
+            # With OpenGL, we must use flip() for all updates
+            pygame.display.flip()
             
             # Update FPS counter
             self._update_fps_counter(frame_start)
             
+            # Store performance metrics
+            frame_time = (time.perf_counter() - frame_start) * 1000  # Convert to ms
+            self.debug_metrics["frame_render_times"].append(frame_time)
+            
+            # Keep only the last 10 frame times
+            if len(self.debug_metrics["frame_render_times"]) > 10:
+                self.debug_metrics["frame_render_times"].pop(0)
+            
+            # Calculate average render time
+            if self.debug_metrics["frame_render_times"]:
+                self.debug_metrics["avg_render_time"] = sum(
+                    self.debug_metrics["frame_render_times"]
+                ) / len(self.debug_metrics["frame_render_times"])
+            
             # Limit frame rate efficiently
-            # Sleep just enough to maintain target frame rate
             clock.tick(self.fps)
     
     def _update_fps_counter(self, frame_start):
@@ -642,10 +686,6 @@ class UINode:
                     # Set mode with configured resolution
                     self.screen = pygame.display.set_mode((self.width, self.height), flags)
                     logger.info(f"Toggled fullscreen mode to {self.fullscreen}, resolution: {self.width}x{self.height}")
-                    
-                    # Recreate subsurfaces after display mode change
-                    self._create_panel_surfaces()
-                    self.debug_metrics["fullscreen_mode"] = self.fullscreen
     
     def _check_messages(self) -> None:
         """Check for messages from other nodes with minimal blocking."""
@@ -658,146 +698,11 @@ class UINode:
         """Update animation state."""
         self.current_frame = (self.current_frame + 1) % len(self.assets.animation_frames)
     
-    def _render_top_panel(self, dirty_rects: List[pygame.Rect]) -> None:
+    def _render_debug_for_opengl(self) -> None:
         """
-        Render the top panel with animated content, optimized for Mali400/Lima.
-        
-        Args:
-            dirty_rects: List to which updated areas will be added
+        Render debug information for OpenGL mode.
+        This version renders directly to the bottom surface.
         """
-        # Measure rendering time
-        start_time = time.perf_counter()
-        
-        # Get current animation frame
-        animation_frame = self.assets.animation_frames[self.current_frame]
-        
-        # Clear only the specific area we're updating to reduce fill operations
-        # Mali GPUs are sensitive to large fill operations
-        center_x = (self.width - self.assets.animation_size) // 2
-        center_y = (self.top_panel_height - self.assets.animation_size) // 2
-        
-        # Create a rectangle for the area we're updating
-        update_rect = pygame.Rect(
-            center_x, 
-            center_y, 
-            animation_frame.get_width(), 
-            animation_frame.get_height()
-        )
-        
-        try:
-            # Optimized drawing sequence for Mali400/Lima
-            
-            # 1. Clear only what we need with minimal fill area
-            surface_start = time.perf_counter()
-            self.top_surface.fill(BLACK, update_rect)
-            self.debug_metrics["last_surface_time"] = (time.perf_counter() - surface_start) * 1000
-            
-            # 2. Efficient blitting - directly copy pre-rendered frame
-            blit_start = time.perf_counter()
-            self.top_surface.blit(animation_frame, (center_x, center_y))
-            self.debug_metrics["last_blit_time"] = (time.perf_counter() - blit_start) * 1000
-            
-            # 3. Add minimal dirty rectangle - just the animation area
-            # Convert to screen coordinates (top panel is a subsurface)
-            screen_rect = pygame.Rect(
-                update_rect.x,
-                update_rect.y,
-                update_rect.width,
-                update_rect.height
-            )
-            dirty_rects.append(screen_rect)
-            
-            # Performance tracking
-            frame_time = (time.perf_counter() - start_time) * 1000  # Convert to ms
-            self.debug_metrics["frame_render_times"].append(frame_time)
-            
-            # Keep only the last 10 frame times
-            if len(self.debug_metrics["frame_render_times"]) > 10:
-                self.debug_metrics["frame_render_times"].pop(0)
-            
-            # Calculate average render time
-            if self.debug_metrics["frame_render_times"]:
-                self.debug_metrics["avg_render_time"] = sum(
-                    self.debug_metrics["frame_render_times"]
-                ) / len(self.debug_metrics["frame_render_times"])
-        except Exception as e:
-            logger.error(f"Error during rendering top panel: {e}")
-    
-    def _render_bottom_panel(self, dirty_rects: List[pygame.Rect]) -> None:
-        """
-        Render the bottom panel with information.
-        
-        Args:
-            dirty_rects: List to which updated areas will be added
-        """
-        # Start with a clean bottom panel
-        self.bottom_surface.blit(self.bottom_bg, (0, 0))
-        
-        # Draw a separator line between panels
-        pygame.draw.line(
-            self.bottom_surface, 
-            GRAY,
-            (0, 0),
-            (self.width, 0)
-        )
-        
-        # Get the current mode
-        mode = self.state.mode
-        
-        # Render mode text
-        rect = self.assets.render_text(
-            self.bottom_surface,
-            f"Mode: {mode.name}",
-            "title",
-            20, 
-            20,
-            WHITE
-        )
-        # Add to dirty rects, adjusting for bottom panel position
-        dirty_rects.append(pygame.Rect(
-            rect.x,
-            rect.y + self.top_panel_height,
-            rect.width,
-            rect.height
-        ))
-        
-        # Render additional status information
-        y_pos = 20 + self.assets.title_font_size + 10
-        
-        # System status
-        status_info = [
-            f"System Status: Online",
-            f"Temperature: {self.monitor.temperature:.1f}°C"
-        ]
-        
-        for info in status_info:
-            rect = self.assets.render_text(
-                self.bottom_surface,
-                info,
-                "text",
-                20,
-                y_pos,
-                LIGHT_GRAY
-            )
-            # Add to dirty rects, adjusting for bottom panel position
-            dirty_rects.append(pygame.Rect(
-                rect.x,
-                rect.y + self.top_panel_height,
-                rect.width,
-                rect.height
-            ))
-            y_pos += self.assets.text_font_size + 5
-    
-    def _render_debug(self, dirty_rects: List[pygame.Rect]) -> None:
-        """
-        Render enhanced debug information in the bottom-right corner.
-        
-        Args:
-            dirty_rects: List to which updated areas will be added
-        """
-        if not self.state.show_debug:
-            return
-        
         # Basic debug information
         debug_info = [
             f"FPS: {self.state.fps}",
@@ -807,9 +712,8 @@ class UINode:
             f"Res: {self.width}x{self.height}",
             "",  # Empty line as separator
             f"RENDER: {self.debug_metrics['avg_render_time']:.2f}ms",
-            f"BLIT: {self.debug_metrics['last_blit_time']:.2f}ms",
-            f"SURFACE: {self.debug_metrics['last_surface_time']:.2f}ms",
-            f"RECTS: {self.debug_metrics['dirty_rects_count']}",
+            f"OPENGL: Active",
+            f"VSYNC: {'On' if self.vsync else 'Off'}",
             f"CACHE: {self.debug_metrics['animation_cache_size']:.1f}KB",
             f"GFXDRAW: {'Yes' if self.debug_metrics['using_gfxdraw'] else 'No'}",
             f"ANIM: {self.current_frame+1}/{len(self.assets.animation_frames)}",
@@ -832,14 +736,6 @@ class UINode:
         pygame.draw.rect(self.bottom_surface, BLACK, bg_rect)
         pygame.draw.rect(self.bottom_surface, GRAY, bg_rect, 1)
         
-        # Add entire panel area to dirty rects
-        dirty_rects.append(pygame.Rect(
-            bg_rect.x,
-            bg_rect.y + self.top_panel_height,
-            bg_rect.width,
-            bg_rect.height
-        ))
-        
         # Render each line of debug info
         for i, info in enumerate(debug_info):
             # Use different colors for headers and values
@@ -853,8 +749,6 @@ class UINode:
                 self.height - self.top_panel_height - bg_height + (i * (self.assets.small_font_size + 5)) + 5,
                 text_color
             )
-            # We don't need to add each text line to dirty_rects
-            # since we've already added the entire panel area
 
 
 def main() -> None:
