@@ -347,194 +347,182 @@ class UINode:
     def _process_events(self) -> None:
         """Process PyGame events efficiently."""
         for event in pygame.event.get():
-                vent.type == pygame.QUIT:
+            if event.type == pygame.QUIT:
+                self.is_running = False
+            
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    # Escape key exits
+                    self.is_running = False
+                
+                elif event.key == pygame.K_d:
+                    # Toggle debug mode
+                    self.state.show_debug = not self.state.show_debug
+                    logger.info(f"Debug mode toggled: {self.state.show_debug}")
+                
                 elif event.key == pygame.K_f:
                     # Toggle fullscreen with proper OpenGL reconfiguration
                     self.fullscreen = not self.fullscreen
-                    vent.key == pygame.K_ESCAPE:
+                    
                     # Need to recreate the display for fullscreen change
                     flags = OPENGL | DOUBLEBUF
                     if self.fullscreen:
-                        flags |= FULLSCREENd:
-                    # Toggle debug mode
-                    # Create new OpenGL surface self.state.show_debug
-                    self.screen = pygame.display.set_mode(f.state.show_debug}")
+                        flags |= FULLSCREEN
+                    
+                    # Create new OpenGL surface
+                    self.screen = pygame.display.set_mode(
                         (self.width, self.height),
-                        flags, == pygame.K_f:
-                        vsync=1 if self.vsync else 0OpenGL reconfiguration
-                    )elf.fullscreen = not self.fullscreen
+                        flags,
+                        vsync=1 if self.vsync else 0
+                    )
                     
-                    # Reconfigure OpenGL contextay for fullscreen change
-                    self._configure_opengl()UF
-                    if self.fullscreen:
+                    # Reconfigure OpenGL context
+                    self._configure_opengl()
+                    
                     logger.info(f"Toggled fullscreen mode to {self.fullscreen}")
-                    
-    def _check_messages(self) -> None:L surface
+    
+    def _check_messages(self) -> None:
         """Check for messages from other nodes with minimal blocking."""
         message = self.subscriber.receive(timeout=10)
-        if message:     flags,
-            # Update state based on the messagelse 0
-            self.state.update_from_message(message)
-                    
-    def _update_animation(self) -> None: context
-        """Update animation state."""pengl()
-        self.current_frame = (self.current_frame + 1) % self.assets.animation_frames
-        self.debug_metrics["animation_frame"] = self.current_frame.fullscreen}")
-    
-    def _render_top_panel(self, center_x: float, center_y: float) -> None:
-        """Check for messages from other nodes with minimal blocking."""
-        Render the top panel with animated pulsing circle.
         Uses direct OpenGL rendering for efficiency.
-            # Update state based on the message
-        Args:elf.state.update_from_message(message)
+        
+        Args:
             center_x: X coordinate of panel center
             center_y: Y coordinate of panel center
-        """Update animation state."""
-        # Calculate pulse size based on current frame % self.assets.animation_frames
+        """
+        # Calculate pulse size based on current frame
         pulse_factor = self.assets.pulse_factors[self.current_frame]
         radius = self.assets.animation_size // 2 * pulse_factor
-        _render_top_panel(self, center_x: float, center_y: float) -> None:
+        
         # Set color with slight transparency
-        circle_color = (RED[0], RED[1], RED[2], 0.9)ircle.
-        Uses direct OpenGL rendering for efficiency.
+        circle_color = (RED[0], RED[1], RED[2], 0.9)
+        
         # Render pulsing circle
         self.assets.render_circle(center_x, center_y, radius, circle_color)
-            center_x: X coordinate of panel center
-    def _render_bottom_panel(self) -> None: center
+    
+    def _render_bottom_panel(self) -> None:
         """
         Render the bottom panel with status information.
-        Uses OpenGL-based text rendering.factors[self.current_frame]
-        """ius = self.assets.animation_size // 2 * pulse_factor
+        Uses OpenGL-based text rendering.
+        """
         # Draw separator line
         draw_line(0, self.top_panel_height, self.width, self.top_panel_height, GRAY)
-        circle_color = (RED[0], RED[1], RED[2], 0.9)
+        
         # Render mode text
-        mode = self.state.modee
-        self.assets.render_text(e(center_x, center_y, radius, circle_color)
+        mode = self.state.mode
+        self.assets.render_text(
             f"Mode: {mode.name}",
-            "title",om_panel(self) -> None:
+            "title",
             20, 
-            self.top_panel_height + 20,atus information.
-            WHITEGL-based text rendering.
-        )""
-        # Draw separator line
-        # System status information_height, self.width, self.top_panel_height, GRAY)
+            self.top_panel_height + 20,
+            WHITE
+        )
+        
+        # System status information
         y_pos = self.top_panel_height + 20 + self.assets.title_font_size + 10
-        status_info = [ext
+        status_info = [
             f"System Status: Online",
             f"Temperature: {self.monitor.temperature:.1f}°C"
-        ]   f"Mode: {mode.name}",
-            "title",
+        ]
+        
         for info in status_info:
-            self.assets.render_text(20,
+            self.assets.render_text(
                 info,
                 "text",
                 20,
-                y_pos,s information
-                LIGHT_GRAYanel_height + 20 + self.assets.title_font_size + 10
-            )s_info = [
+                y_pos,
+                LIGHT_GRAY
+            )
             y_pos += self.assets.text_font_size + 5
-            f"Temperature: {self.monitor.temperature:.1f}°C"
+    
     def _render_debug_overlay(self) -> None:
         """
         Render debug information overlay with enhanced FPS metrics.
-        """ self.assets.render_text(
+        """
         # Prepare debug information with more detailed performance metrics
-        debug_info = [,
+        debug_info = [
             f"FPS: {self.state.fps}",  # Actual frames per second
             f"Frame Time: {(sum(self.frame_time_buffer)/max(len(self.frame_time_buffer),1))*1000:.1f}ms",
             f"CPU: {self.monitor.cpu_usage:.1f}%",
             f"MEM: {self.monitor.memory_usage:.1f}MB",
-            f"TEMP: {self.monitor.temperature:.1f}°C", + 5
+            f"TEMP: {self.monitor.temperature:.1f}°C",
             f"Res: {self.width}x{self.height}",
             "",  # Empty line as separator
             f"RENDER: {self.debug_metrics['avg_render_time']:.2f}ms",
             f"VSYNC: {'On' if self.vsync else 'Off'}",
             f"ANIM: {self.current_frame+1}/{self.assets.animation_frames}",
             f"GL VER: {glGetString(GL_VERSION).decode()[:10]}",
-            f"FULLSCREEN: {'Yes' if self.fullscreen else 'No'}"ebug_info = [
-        ]    f"FPS: {self.state.fps}",
-        e:.1f}%",
-        # Calculate background dimensionslf.monitor.memory_usage:.1f}MB",
-        bg_width = 200
-        bg_height = (len(debug_info) * (self.assets.small_font_size + 5)) + 10    f"Res: {self.width}x{self.height}",
+            f"FULLSCREEN: {'Yes' if self.fullscreen else 'No'}"
+        ]
         
-        # Draw semi-transparent backgroundself.debug_metrics['avg_render_time']:.2f}ms",
-        draw_rectangle(cs['frames_rendered']}",
-            self.width - bg_width - 20,}/{self.assets.animation_frames}",
-            self.height - bg_height - 10, {glGetString(GL_VERSION).decode()[:10]}",
-            bg_width,EN: {'Yes' if self.fullscreen else 'No'}"
+        # Calculate background dimensions
+        bg_width = 200
+        bg_height = (len(debug_info) * (self.assets.small_font_size + 5)) + 10
+        
+        # Draw semi-transparent background
+        draw_rectangle(
+            self.width - bg_width - 20,
+            self.height - bg_height - 10,
+            bg_width,
             bg_height,
             (0.0, 0.0, 0.0, 0.7)  # Semi-transparent black
-        )# Calculate background dimensions
-        0
-        # Draw borderinfo) * (self.assets.small_font_size + 5)) + 10
+        )
+        
+        # Draw border
         draw_rectangle_outline(
-            self.width - bg_width - 20,d
-            self.height - bg_height - 10,e(
-            bg_width, - bg_width - 20,
-            bg_height,.height - bg_height - 10,
-            GRAY   bg_width,
-        )    bg_height,
-        -transparent black
+            self.width - bg_width - 20,
+            self.height - bg_height - 10,
+            bg_width,
+            bg_height,
+            GRAY
+        )
+        
         # Render each line of debug info
         y_offset = 10  # Starting Y offset
         for info in debug_info:
             # Use different colors for headers and values
-            text_color = WHITE if info == "" or ":" not in info else LIGHT_GRAYself.width - bg_width - 20,
-            - 10,
+            text_color = WHITE if info == "" or ":" not in info else LIGHT_GRAY
+            
             self.assets.render_text(
                 info,
                 "small",
                 self.width - bg_width - 15,
                 self.height - bg_height - 5 + y_offset,
-                text_colorder each line of debug info
-            )fset = 10  # Starting Y offset
+                text_color
+            )
             
-            y_offset += self.assets.small_font_size + 5            # Use different colors for headers and values
-            text_color = WHITE if info == "" or ":" not in info else LIGHT_GRAY
+            y_offset += self.assets.small_font_size + 5
+
 
 def main() -> None:
-    """Main entry point for the OpenGL-accelerated UI node."""        info,
+    """Main entry point for the OpenGL-accelerated UI node."""
     try:
-        # Set process priority if possible    self.width - bg_width - 15,
-        try:height - bg_height - 5 + y_offset,
+        # Set process priority if possible
+        try:
             import os
             os.nice(-10)  # Try to set higher priority
         except (ImportError, OSError):
-            pass    y_offset += self.assets.small_font_size + 5
+            pass
         
         # Check that PyOpenGL is available
         if not HAS_OPENGL:
             logger.error("PyOpenGL is required for hardware-accelerated rendering")
             print("ERROR: PyOpenGL not found. Please install with: pip install PyOpenGL PyOpenGL_accelerate")
-            sys.exit(1)# Set process priority if possible
+            sys.exit(1)
         
         # Print diagnostics for debugging
         logger.info(f"Python version: {sys.version}")
         logger.info(f"PyGame version: {pygame.version.ver}")
-        logger.info(f"OpenGL available: {HAS_OPENGL}")    pass
+        logger.info(f"OpenGL available: {HAS_OPENGL}")
         
         parser = argparse.ArgumentParser(description="UI Node with OpenGL Acceleration")
         parser.add_argument("--config", type=str, help="Path to configuration file")
-        args = parser.parse_args()    logger.error("PyOpenGL is required for hardware-accelerated rendering")
-         found. Please install with: pip install PyOpenGL PyOpenGL_accelerate")
+        args = parser.parse_args()
+        
         # Create and start the UI node
         node = UINode(args.config)
-        node.start()s for debugging
+        node.start()
     except Exception as e:
-        logger.error(f"Error starting UI: {e}", exc_info=True)rsion.ver}")
-        print(f"ERROR: Failed to start UI: {e}")logger.info(f"OpenGL available: {HAS_OPENGL}")
-        
-        # Print traceback for better debugginge.ArgumentParser(description="UI Node with OpenGL Acceleration")
-        import traceback--config", type=str, help="Path to configuration file")
-        traceback.print_exc()er.parse_args()
-        sys.exit(1)        
-        # Create and start the UI node
-.config)
-if __name__ == "__main__":de.start()
-
-    main()    except Exception as e:
         logger.error(f"Error starting UI: {e}", exc_info=True)
         print(f"ERROR: Failed to start UI: {e}")
         
