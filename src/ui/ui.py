@@ -382,7 +382,8 @@ class UINode:
                     logger.info(f"Toggled fullscreen mode to {self.fullscreen}")
     
     def _check_messages(self) -> None:
-        """Check for messages from other nodes with minimal blocking."""
+        """
+        Check for messages from other nodes with minimal blocking.
         message = self.subscriber.receive(timeout=10)
         Uses direct OpenGL rendering for efficiency.
         
