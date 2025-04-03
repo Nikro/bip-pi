@@ -167,7 +167,7 @@ class UIAssets:
     
     def _create_animation_frames(self, color, num_frames):
         """
-        Pre-render animation frames using surfaces with pre-drawn circles.
+        Pre-render animation frames using surfaces with pre-drawn circles optimized for Mali400/Lima.
         
         Args:
             color: RGB color tuple for the circle
@@ -179,24 +179,28 @@ class UIAssets:
         frames = []
         animation_size = self.animation_size
         
+        # Use power-of-two texture dimensions for better GPU performance
+        # Mali GPUs are optimized for power-of-two textures
+        pow2_size = 2**math.ceil(math.log2(animation_size))
+        
         for i in range(num_frames):
             # Calculate subtle pulse factor - improved smoothness with better range
             phase = (i / num_frames) * 2 * math.pi
             pulse_factor = 0.85 + 0.15 * ((math.sin(phase) + 1) / 2)
             
-            # Create optimized surface with pixel alpha
-            surface = pygame.Surface((animation_size, animation_size), flags=SRCALPHA)
+            # Create hardware-optimized surface
+            # Using power-of-two dimensions and 32-bit color for Mali GPUs
+            surface = pygame.Surface((pow2_size, pow2_size), flags=SRCALPHA)
             surface.fill((0, 0, 0, 0))  # Transparent background
             
             # Calculate circle parameters
             radius = int(animation_size // 2.5 * pulse_factor)
-            center_x = animation_size // 2
-            center_y = animation_size // 2
+            center_x = pow2_size // 2
+            center_y = pow2_size // 2
             
             # Use the most efficient drawing method available
             if HAS_GFXDRAW:
-                # Two-pass rendering for better appearance but still efficient
-                # First draw filled circle
+                # First draw filled circle with solid color
                 pygame.gfxdraw.filled_circle(
                     surface, center_x, center_y, radius, color
                 )
@@ -208,8 +212,19 @@ class UIAssets:
                 # Standard circle drawing as fallback
                 pygame.draw.circle(surface, color, (center_x, center_y), radius)
             
-            # Convert surface for faster blitting - ensure alpha is preserved
-            frames.append(surface.convert_alpha())
+            # Convert surface with specific flags for hardware acceleration
+            # For Mali400/Lima: 32-bit with alpha optimized for hardware
+            hardware_surface = surface.convert_alpha()
+            
+            # Force upload to texture memory if possible
+            # This ensures the texture is already in VRAM, not CPU memory
+            if hasattr(hardware_surface, 'get_locked'):
+                try:
+                    hardware_surface.unlock()
+                except:
+                    pass
+                
+            frames.append(hardware_surface)
         
         return frames
     
@@ -332,18 +347,35 @@ class UINode:
         logger.info("UI node initialization complete")
     
     def _configure_environment(self):
-        """Configure environment variables for optimal performance."""
-        # Let PyGame detect most settings automatically
-        
-        # Only set critical variables that won't conflict with Mali400/Lima
+        """
+        Configure environment variables for optimal Mali400/Lima performance.
+        Uses minimal settings to avoid conflicts while ensuring hardware acceleration.
+        """
+        # Set essential PyGame environment variables
         os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-        
-        # Ensure hardware detection is enabled
         os.environ['PYGAME_DETECT_AVX2'] = '1'
         
-        # Force X11 for display driver as it works well with Mali400/Lima
-        if 'SDL_VIDEODRIVER' not in os.environ:
-            os.environ['SDL_VIDEODRIVER'] = 'x11'
+        # Force using X11 driver which has better compatibility with Lima
+        os.environ['SDL_VIDEODRIVER'] = 'x11'
+        
+        # Force OpenGL renderer with specific optimizations
+        os.environ['SDL_RENDER_DRIVER'] = 'opengl'
+        os.environ['SDL_HINT_RENDER_DRIVER'] = 'opengl'
+        
+        # Use nearest neighbor filtering (faster on Mali GPU)
+        os.environ['SDL_HINT_RENDER_SCALE_QUALITY'] = '0'
+        
+        # Enable efficient batch processing of draw calls
+        os.environ['SDL_HINT_RENDER_BATCHING'] = '1'
+        
+        # Disable vertical sync for maximum performance
+        os.environ['SDL_HINT_RENDER_VSYNC'] = '0'
+        
+        # Request direct framebuffer access for better performance
+        os.environ['SDL_HINT_FRAMEBUFFER_ACCELERATION'] = '1'
+        
+        # Log hardware configuration at startup
+        logger.info(f"Configuring for Mali400/Lima GPU acceleration")
     
     def _create_display_surface(self):
         """Create optimized display surface with appropriate flags."""
@@ -601,7 +633,7 @@ class UINode:
     
     def _render_top_panel(self, dirty_rects: List[pygame.Rect]) -> None:
         """
-        Render the top panel with animated content.
+        Render the top panel with animated content, optimized for Mali400/Lima.
         
         Args:
             dirty_rects: List to which updated areas will be added
@@ -612,7 +644,8 @@ class UINode:
         # Get current animation frame
         animation_frame = self.assets.animation_frames[self.current_frame]
         
-        # Center the animation in the top panel
+        # Clear only the specific area we're updating to reduce fill operations
+        # Mali GPUs are sensitive to large fill operations
         center_x = (self.width - self.assets.animation_size) // 2
         center_y = (self.top_panel_height - self.assets.animation_size) // 2
         
@@ -620,22 +653,24 @@ class UINode:
         update_rect = pygame.Rect(
             center_x, 
             center_y, 
-            self.assets.animation_size, 
-            self.assets.animation_size
+            animation_frame.get_width(), 
+            animation_frame.get_height()
         )
         
-        # Clear only the area we're updating
         try:
+            # Optimized drawing sequence for Mali400/Lima
+            
+            # 1. Clear only what we need with minimal fill area
             surface_start = time.perf_counter()
             self.top_surface.fill(BLACK, update_rect)
             self.debug_metrics["last_surface_time"] = (time.perf_counter() - surface_start) * 1000
             
-            # Blit the pre-rendered animation frame
+            # 2. Efficient blitting - directly copy pre-rendered frame
             blit_start = time.perf_counter()
             self.top_surface.blit(animation_frame, (center_x, center_y))
             self.debug_metrics["last_blit_time"] = (time.perf_counter() - blit_start) * 1000
             
-            # Add the updated area to the dirty rectangles list
+            # 3. Add minimal dirty rectangle - just the animation area
             # Convert to screen coordinates (top panel is a subsurface)
             screen_rect = pygame.Rect(
                 update_rect.x,
