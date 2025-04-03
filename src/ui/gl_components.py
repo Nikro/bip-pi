@@ -157,21 +157,23 @@ class GLTexture:
         # Set white color to preserve texture colors
         glColor4f(1.0, 1.0, 1.0, 1.0)
         
-        # FIXED TEXTURE COORDINATES - corrected orientation for PyGame textures
-        # Top-left
-        glTexCoord2f(0.0, 0.0)
+        # FIXED TEXTURE COORDINATES - Flipped Y coordinates to match PyGame surface orientation
+        # PyGame surfaces have (0,0) at top-left, but OpenGL textures have (0,0) at bottom-left
+        
+        # Top-left vertex (0,0 in texture space)
+        glTexCoord2f(0.0, 1.0)  # Changed from 0.0 to 1.0 for Y
         glVertex2f(x, y)
         
-        # Top-right
-        glTexCoord2f(tex_right, 0.0)
+        # Top-right vertex (1,0 in texture space)
+        glTexCoord2f(tex_right, 1.0)  # Changed from 0.0 to 1.0 for Y
         glVertex2f(x + width, y)
         
-        # Bottom-right
-        glTexCoord2f(tex_right, tex_bottom)
+        # Bottom-right vertex (1,1 in texture space)
+        glTexCoord2f(tex_right, 0.0)  # Changed from tex_bottom to 0.0
         glVertex2f(x + width, y + height)
         
-        # Bottom-left
-        glTexCoord2f(0.0, tex_bottom)
+        # Bottom-left vertex (0,1 in texture space)
+        glTexCoord2f(0.0, 0.0)  # Changed from tex_bottom to 0.0
         glVertex2f(x, y + height)
         
         glEnd()
