@@ -115,18 +115,29 @@ detect_hardware_acceleration() {
     if command -v glxinfo &>/dev/null; then
         if glxinfo | grep -i "direct rendering: yes" > /dev/null; then
             log_message "INFO" "OpenGL hardware acceleration available"
-            export PYGAME_DISPLAY=:0
-            export PYGAME_HWSURFACE=1
-            export PYGAME_DOUBLEBUF=1
-            return 0
+            hwsurface_value=1
+            doublebuf_value=1
+            retval=0
+        else
+            hwsurface_value=0
+            doublebuf_value=0
+            retval=1
         fi
+    else
+        hwsurface_value=0
+        doublebuf_value=0
+        retval=1
     fi
     
-    # No hardware acceleration detected, use software rendering
-    log_message "WARNING" "No hardware acceleration detected, using software rendering"
+    # Export variables for both runtime and potential compilation
     export PYGAME_DISPLAY=:0
-    export PYGAME_HWSURFACE=0
-    return 1
+    export PYGAME_HWSURFACE=$hwsurface_value
+    export PYGAME_DOUBLEBUF=$doublebuf_value
+    
+    # Export AVX2 detection for both runtime and compilation
+    export PYGAME_DETECT_AVX2=1
+    
+    return $retval
 }
 
 # Detect and configure hardware acceleration
@@ -145,41 +156,30 @@ if [ -f "/proc/cpuinfo" ]; then
     fi
 fi
 
-# Check for Poetry first
-if command -v poetry &>/dev/null; then
-    log_message "INFO" "Using Poetry to run the application..."
-    
-    # Update dependencies if needed
-    if ! poetry install; then
-        log_message "WARNING" "Poetry install failed. Continuing with existing dependencies."
-    fi
-    
-    # Run the UI application with Poetry
-    log_message "INFO" "Starting UI application with Poetry..."
-    
-    # Ensure we have diagnostic output in case of failure
+# Activate virtual environment FIRST, then check for poetry
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+    log_message "INFO" "Virtual environment activated: $(which python)"
     log_message "INFO" "Python version: $(python --version 2>&1)"
-    log_message "INFO" "PyGame presence: $(pip show pygame 2>&1 || echo 'Not installed')"
     
-    # Add explicit environment activation
-    if [ -f ".venv/bin/activate" ]; then
-        source .venv/bin/activate
-    fi
-    
-    poetry run python -m src.ui.ui
-    
-    exit_code=$?
-    log_message "INFO" "UI application exited with code $exit_code at $(date)"
-else
-    # Fallback to direct virtual environment activation
-    log_message "INFO" "Poetry not found. Using virtual environment directly..."
-    
-    if [ -f ".venv/bin/activate" ]; then
-        # Activate the virtual environment and verify it worked
-        source .venv/bin/activate
-        log_message "INFO" "Virtual environment activated: $(which python)"
-        log_message "INFO" "Python version: $(python --version 2>&1)"
-        log_message "INFO" "PyGame presence: $(pip show pygame 2>&1 || echo 'Not installed')"
+    # Now check if Poetry is available (after activating the environment)
+    if command -v poetry &>/dev/null; then
+        log_message "INFO" "Poetry found in virtual environment, using it to run application..."
+        
+        # Update dependencies if needed
+        if ! poetry install; then
+            log_message "WARNING" "Poetry install failed. Continuing with existing dependencies."
+        fi
+        
+        # Run the UI application with Poetry
+        log_message "INFO" "Starting UI application with Poetry..."
+        poetry run python -m src.ui.ui
+        
+        exit_code=$?
+        log_message "INFO" "UI application exited with code $exit_code at $(date)"
+    else
+        # Poetry not found even after activation, use direct Python
+        log_message "INFO" "Poetry not found in virtual environment. Using Python directly..."
         
         # Ensure pygame is installed
         if ! python -c "import pygame" 2>/dev/null; then
@@ -193,19 +193,19 @@ else
         
         exit_code=$?
         log_message "INFO" "UI application exited with code $exit_code at $(date)"
-    else
-        log_message "ERROR" "No virtual environment found. Cannot start application."
-        
-        # Display graphical error if possible
-        if [ -n "$DISPLAY" ] && command -v zenity &>/dev/null; then
-            zenity --error --title="Reactive Companion Error" --text="No Python virtual environment found.\nPlease run the installation script first."
-        fi
-        
-        echo ""
-        echo "Press Enter to exit..."
-        read -r
-        exit 1
     fi
+else
+    log_message "ERROR" "No virtual environment found. Cannot start application."
+    
+    # Display graphical error if possible
+    if [ -n "$DISPLAY" ] && command -v zenity &>/dev/null; then
+        zenity --error --title="Reactive Companion Error" --text="No Python virtual environment found.\nPlease run the installation script first."
+    fi
+    
+    echo ""
+    echo "Press Enter to exit..."
+    read -r
+    exit 1
 fi
 
 # Keep terminal window open briefly to show any exit messages

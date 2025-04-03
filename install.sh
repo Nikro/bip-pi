@@ -47,43 +47,6 @@ sudo apt install -y \
   || echo "Warning: Some audio/graphics packages may have failed to install, continuing anyway"
 
 ###############################################################################
-# 2. SSH SECURITY - RESTRICT TO LOCAL NETWORK
-###############################################################################
-separator "Configuring SSH for local network only..."
-
-# Get the local subnet (assuming 192.168.x.x or 10.x.x.x networks)
-LOCAL_SUBNET=$(ip route | grep -E '(192\.168|10\.)' | grep -v default | head -1 | awk '{print $1}')
-
-if [ -z "$LOCAL_SUBNET" ]; then
-  echo "Warning: Could not determine local subnet, using 192.168.0.0/16 as default"
-  LOCAL_SUBNET="192.168.0.0/16"
-fi
-
-echo "==> Detected local subnet: $LOCAL_SUBNET"
-
-# Create a backup of the SSH config
-sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
-
-# Create or modify the SSH configuration to allow only local connections
-sudo tee /etc/ssh/sshd_config.d/local-only.conf > /dev/null <<EOF
-# Allow SSH only from local network
-Match Address $LOCAL_SUBNET
-  PermitRootLogin no
-  PasswordAuthentication yes
-  X11Forwarding no
-
-# Deny from all other addresses
-Match Address *
-  PermitRootLogin no
-  PasswordAuthentication no
-  X11Forwarding no
-EOF
-
-# Restart SSH service
-sudo systemctl restart sshd || echo "Warning: Failed to restart SSH service"
-echo "==> SSH configured to allow connections only from the local network ($LOCAL_SUBNET)"
-
-###############################################################################
 # 3. PROJECT SETUP - CLONE FROM GIT
 ###############################################################################
 separator "Cloning Reactive Companion from Git repository..."
@@ -284,8 +247,13 @@ pip install "poetry>=2.1.2"
 
 # Pre-install problematic packages with pip before using Poetry
 echo "==> Pre-installing packages that might cause build issues..."
+export PYGAME_DETECT_AVX2=1
 pip install wheel
-pip install --no-build-isolation pyaudio pygame
+pip install --no-build-isolation pyaudio
+
+# Reinstall pygame
+pip uninstall -y pygame
+pip install --no-build-isolation pygame
 
 # Verify Poetry installation
 if command -v poetry &>/dev/null; then
