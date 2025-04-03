@@ -1,7 +1,7 @@
 #!/bin/bash
 # This script updates the repository, validates the environment, and starts the application
 
-# Redirect all output to a log file so we can fetch the most recent run logs later.
+# Redirect all output to a log file
 exec >> "$(dirname "$(readlink -f "$0")")/logs/update_and_run.log" 2>&1
 
 # Script constants
@@ -9,10 +9,6 @@ SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 REQUIRED_FILES=(".env" "config/ui_config.json" "config/awareness_config.json" "config/brains_config.json")
 MISSING_FILES=()
 ERROR_LOG="${SCRIPT_DIR}/logs/startup_errors.log"
-
-# Set PyGame optimization flags before any Python scripts are run
-export PYGAME_DETECT_AVX2=1
-export PYGAME_HIDE_SUPPORT_PROMPT=1
 
 # Create logs directory if it doesn't exist
 mkdir -p "${SCRIPT_DIR}/logs"
@@ -35,18 +31,19 @@ if [ ! -f "${SCRIPT_DIR}/.first_run_complete" ]; then
     # Try to ensure all required libraries are installed
     if [ -x "$(command -v apt-get)" ]; then
         log_message "INFO" "Installing required development libraries..."
-        sudo apt-get install -y libffi-dev build-essential python3-dev
+        sudo apt-get update
+        sudo apt-get install -y libffi-dev build-essential python3-dev mesa-utils
         
-        # Install PyGame for better performance - make sure to use the system version
-        log_message "INFO" "Installing PyGame for improved performance..."
+        # Install PyGame and PyOpenGL for hardware acceleration
+        log_message "INFO" "Installing PyGame and PyOpenGL for hardware acceleration..."
         
         if [ -f ".venv/bin/activate" ]; then
             source .venv/bin/activate
-            pip install --upgrade pygame
+            pip install --upgrade pygame PyOpenGL PyOpenGL_accelerate
         elif command -v poetry &>/dev/null; then
-            poetry add pygame
+            poetry add pygame PyOpenGL PyOpenGL_accelerate
         else
-            log_message "WARNING" "Neither virtual environment nor Poetry found. Cannot install PyGame."
+            log_message "WARNING" "Neither virtual environment nor Poetry found. Cannot install required packages."
         fi
         
         # Create marker file to avoid repeating this step
@@ -99,28 +96,37 @@ if [ ${#MISSING_FILES[@]} -gt 0 ]; then
         fi
     fi
     
-    # Keep the terminal window open with the error message
     echo ""
     echo "Press Enter to exit..."
     read -r
     exit 1
 fi
 
-# Try to activate the Python environment
-log_message "INFO" "Activating Python environment..."
-
-# Detect and configure hardware acceleration
-detect_hardware_acceleration() {
-    log_message "INFO" "Detecting hardware acceleration capabilities..."
+# Configure optimal environment for Mali400/Lima GPU with OpenGL
+configure_mali_gpu() {
+    log_message "INFO" "Configuring Mali400/Lima GPU with OpenGL..."
     
-    # Variables to track hardware acceleration status
-    local has_lima=0
+    # Variables to track hardware detection
     local has_mali=0
     
     # Check for Lima/Mali400 driver in kernel modules
     if lsmod | grep -q -E 'lima|mali|gpu_sched|drm_shmem_helper' 2>/dev/null; then
-        log_message "INFO" "Lima/Mali GPU driver detected"
-        has_lima=1
+        log_message "INFO" "Lima/Mali GPU driver detected in kernel modules"
+        has_mali=1
+    fi
+    
+    # Check for OpenGL renderer information
+    if command -v glxinfo &>/dev/null; then
+        DISPLAY=:0 glxinfo 2>/dev/null | grep -i "OpenGL renderer" | grep -i -q "Mali\|lima" && {
+            log_message "INFO" "Mali/Lima GPU confirmed via OpenGL renderer"
+            has_mali=1
+        }
+    else
+        # Try to install mesa-utils if missing
+        if command -v apt-get &>/dev/null; then
+            log_message "INFO" "Installing mesa-utils for hardware detection..."
+            sudo apt-get install -y mesa-utils &>/dev/null
+        fi
     fi
     
     # Check for specific Mali400 hardware on Allwinner SoCs
@@ -130,38 +136,53 @@ detect_hardware_acceleration() {
         has_mali=1
     fi
     
-    # Set minimal environment variables for hardware acceleration
-    export SDL_VIDEODRIVER="x11"  # Use X11 driver for best compatibility
-    export PYGAME_DISPLAY=:0      # Ensure display is set
+    # Set up optimal environment variables for OpenGL on Mali400/Lima
+    export DISPLAY=:0
+    export SDL_VIDEODRIVER="x11"
     
-    # Only set hardware-specific variables if Mali/Lima GPU is detected
-    if [ $has_lima -eq 1 ] || [ $has_mali -eq 1 ]; then
-        log_message "INFO" "Enabling Mali400/Lima GPU optimizations"
+    # Configuration specific to Mali400/Lima with OpenGL
+    if [ $has_mali -eq 1 ]; then
+        log_message "INFO" "Configuring optimal OpenGL settings for Mali400/Lima GPU"
         
-        # Use hardware acceleration in PyGame
-        export PYGAME_HWSURFACE=1
-        export PYGAME_DOUBLEBUF=1
-        export PYGAME_DETECT_AVX2=1
+        # Mesa driver configuration for Lima
+        export MESA_GL_VERSION_OVERRIDE="2.1"
+        export MESA_GLSL_VERSION_OVERRIDE="120"
+        export GALLIUM_DRIVER="lima"
         
-        # Texture filtering - nearest is faster on Mali400
-        export SDL_HINT_RENDER_SCALE_QUALITY="0"
+        # Performance optimizations
+        export MESA_NO_ERROR="1"  # Disable error checking for performance
+        export vblank_mode="0"    # Disable vsync at driver level
+        
+        # GL threading can improve performance by parallelizing GL operations
+        export mesa_glthread="true"
+        
+        # PyOpenGL configuration
+        export PYOPENGL_PLATFORM="x11"
+        
+        log_message "INFO" "OpenGL environment configured for Mali400/Lima GPU"
+    else
+        log_message "INFO" "No Mali400/Lima GPU detected - using standard configuration"
     fi
 }
 
-# Detect and configure hardware acceleration
-detect_hardware_acceleration
+# Configure Mali400/Lima GPU for optimal OpenGL performance
+configure_mali_gpu
 
-# Activate virtual environment FIRST, then check for poetry
+# Activate virtual environment
 if [ -f ".venv/bin/activate" ]; then
     source .venv/bin/activate
     log_message "INFO" "Virtual environment activated: $(which python)"
     log_message "INFO" "Python version: $(python --version 2>&1)"
     
-    # Now check if Poetry is available (after activating the environment)
+    # Check for PyOpenGL - required for hardware acceleration
+    if ! python -c "import OpenGL" 2>/dev/null; then
+        log_message "WARNING" "PyOpenGL not found. Installing required packages..."
+        pip install PyOpenGL PyOpenGL_accelerate
+    fi
+    
+    # Use Poetry if available, otherwise use Python directly
     if command -v poetry &>/dev/null; then
-        log_message "INFO" "Poetry found in virtual environment, using it to run application..."
-        
-        # Update dependencies if needed
+        log_message "INFO" "Poetry found, using it to run application..."
         if ! poetry install; then
             log_message "WARNING" "Poetry install failed. Continuing with existing dependencies."
         fi
@@ -173,12 +194,12 @@ if [ -f ".venv/bin/activate" ]; then
         exit_code=$?
         log_message "INFO" "UI application exited with code $exit_code at $(date)"
     else
-        # Poetry not found even after activation, use direct Python
-        log_message "INFO" "Poetry not found in virtual environment. Using Python directly..."
+        # Poetry not found, use direct Python
+        log_message "INFO" "Using Python directly..."
         
         # Ensure pygame is installed
         if ! python -c "import pygame" 2>/dev/null; then
-            log_message "WARNING" "PyGame not found in virtual environment. Attempting to install..."
+            log_message "WARNING" "PyGame not found. Installing required packages..."
             pip install pygame
         fi
         
