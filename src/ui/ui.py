@@ -378,31 +378,56 @@ class UINode:
         logger.info(f"Configuring for Mali400/Lima GPU acceleration")
     
     def _create_display_surface(self):
-        """Create optimized display surface with appropriate flags."""
+        """
+        Create optimized display surface with appropriate flags.
+        Properly enables OpenGL hardware acceleration for Mali400/Lima GPU.
+        """
         flags = 0
         
-        # Basic flags for performance
-        if self.fullscreen:
-            flags |= FULLSCREEN
-            
+        # Enable OpenGL rendering - critical for Mali400/Lima hardware acceleration
         flags |= pygame.OPENGL
         
-        # Add hardware acceleration flags if requested and available
-        if self.use_hw_accel:
-            flags |= HWSURFACE | DOUBLEBUF
-            
-            # Add additional acceleration flags if available
-            if HAS_HWACCEL:
-                flags |= HWACCEL
-                if not self.vsync:  # Only use async blit if vsync is disabled
-                    flags |= ASYNCBLIT
+        # Add fullscreen if configured
+        if self.fullscreen:
+            flags |= pygame.FULLSCREEN
+        
+        # Add scaling support for better resolution handling
+        flags |= pygame.SCALED
+        
+        # HWSURFACE is obsolete in pygame 2.0+ but kept for backwards compatibility
+        # Only add it if we're not using OpenGL as it's redundant with OPENGL flag
+        if not self.use_hw_accel:
+            logger.info("Hardware acceleration disabled - using software rendering")
+            flags &= ~pygame.OPENGL  # Remove OpenGL flag
+            flags |= pygame.SWSURFACE  # Use software surface instead
+        else:
+            # Add double buffering with OpenGL for smooth animation
+            flags |= pygame.DOUBLEBUF
+            logger.info("Hardware acceleration enabled with OpenGL renderer")
         
         # Create the display with the configured flags
-        if self.vsync:
-            # Use vsync to prevent screen tearing
-            pygame.display.set_mode((self.width, self.height), flags, vsync=1)
-        else:
-            pygame.display.set_mode((self.width, self.height), flags)
+        try:
+            if self.vsync:
+                # Use vsync to prevent screen tearing - only works with OpenGL
+                logger.info("Creating display with vsync enabled")
+                pygame.display.set_mode((self.width, self.height), flags, vsync=1)
+            else:
+                # Without vsync for maximum frame rate
+                logger.info("Creating display without vsync for maximum performance")
+                pygame.display.set_mode((self.width, self.height), flags)
+            
+            # Log the actual flags that were used
+            logger.info(f"Display created with flags: {flags}")
+        except pygame.error as e:
+            logger.error(f"Failed to create display with OpenGL. Error: {e}")
+            logger.info("Falling back to software rendering")
+            
+            # Fall back to software rendering if OpenGL fails
+            fallback_flags = pygame.SCALED
+            if self.fullscreen:
+                fallback_flags |= pygame.FULLSCREEN
+            
+            pygame.display.set_mode((self.width, self.height), fallback_flags)
     
     def _handle_resolution_mismatch(self, actual_width, actual_height):
         """Handle resolution mismatch by trying alternate approaches."""
