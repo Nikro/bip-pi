@@ -384,6 +384,8 @@ class UINode:
         # Basic flags for performance
         if self.fullscreen:
             flags |= FULLSCREEN
+            
+        flags |= pygame.OPENGL
         
         # Add hardware acceleration flags if requested and available
         if self.use_hw_accel:
