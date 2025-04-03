@@ -176,16 +176,14 @@ class UINode:
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         
-        # Coordinate system: (0,0) at bottom-left, (width,height) at top-right
-        glOrtho(0, self.width, 0, self.height, -1, 1)
+        # FIXED COORDINATE SYSTEM:
+        # Coordinate system: (0,0) at top-left, (width,height) at bottom-right
+        # This matches PyGame's surface orientation for text rendering
+        glOrtho(0, self.width, self.height, 0, -1, 1)
         
         # Switch to modelview matrix for rendering
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
-        
-        # Flip the Y-axis to match PyGame conventions (0,0 at top-left)
-        glScalef(1.0, -1.0, 1.0)
-        glTranslatef(0.0, -self.height, 0.0)
         
         # Report OpenGL information
         logger.info(f"OpenGL Version: {glGetString(GL_VERSION).decode()}")
@@ -278,11 +276,9 @@ class UINode:
             # Clear the screen with a single call (more efficient)
             glClear(GL_COLOR_BUFFER_BIT)
             
-            # Reset the modelview matrix once per frame
+            # Reset the modelview matrix once per frame - FIXED: no flipping needed
             glMatrixMode(GL_MODELVIEW)
             glLoadIdentity()
-            glScalef(1.0, -1.0, 1.0)
-            glTranslatef(0.0, -self.height, 0.0)
             
             # Render both panels every frame to prevent flickering
             self._render_top_panel(animation_center_x, animation_center_y)
