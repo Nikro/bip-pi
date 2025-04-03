@@ -109,30 +109,83 @@ fi
 # Try to activate the Python environment
 log_message "INFO" "Activating Python environment..."
 
-# Check for hardware acceleration options
+# Check for hardware acceleration options - enhanced with Lima/Mali400 support
 detect_hardware_acceleration() {
     log_message "INFO" "Detecting hardware acceleration capabilities..."
+    
+    # Variables to track hardware acceleration status
+    local has_opengl=0
+    local has_lima=0
+    local has_mali=0
+    local hwsurface_value=0
+    local doublebuf_value=0
+    local retval=1
+    
+    # Check for Lima/Mali400 driver
+    if grep -q "lima" /var/log/Xorg.0.log 2>/dev/null || grep -q "mali" /var/log/Xorg.0.log 2>/dev/null; then
+        log_message "INFO" "Lima/Mali400 GPU driver detected"
+        has_lima=1
+    fi
+    
+    # Check for generic OpenGL support with glxinfo
     if command -v glxinfo &>/dev/null; then
         if glxinfo | grep -i "direct rendering: yes" > /dev/null; then
             log_message "INFO" "OpenGL hardware acceleration available"
+            has_opengl=1
             hwsurface_value=1
             doublebuf_value=1
             retval=0
         else
-            hwsurface_value=0
-            doublebuf_value=0
-            retval=1
+            log_message "INFO" "Direct rendering not available via glxinfo"
         fi
+        
+        # Get OpenGL vendor and renderer information
+        local gl_vendor=$(glxinfo | grep "OpenGL vendor" | sed 's/^.*: //')
+        local gl_renderer=$(glxinfo | grep "OpenGL renderer" | sed 's/^.*: //')
+        
+        if [[ "$gl_renderer" == *"Mali"* ]] || [[ "$gl_renderer" == *"lima"* ]]; then
+            log_message "INFO" "Mali/Lima GPU detected: $gl_renderer"
+            has_mali=1
+        fi
+        
+        log_message "INFO" "OpenGL vendor: $gl_vendor"
+        log_message "INFO" "OpenGL renderer: $gl_renderer"
     else
-        hwsurface_value=0
-        doublebuf_value=0
-        retval=1
+        log_message "WARNING" "glxinfo not available - fallback detection method"
+        
+        # Alternative detection methods if glxinfo isn't available
+        if [ $has_lima -eq 1 ]; then
+            log_message "INFO" "Using Lima/Mali driver without glxinfo validation"
+            hwsurface_value=1
+            doublebuf_value=1
+            retval=0
+        fi
     fi
     
     # Export variables for both runtime and potential compilation
     export PYGAME_DISPLAY=:0
     export PYGAME_HWSURFACE=$hwsurface_value
     export PYGAME_DOUBLEBUF=$doublebuf_value
+    
+    # Export additional variables for better OpenGL support
+    if [ $has_opengl -eq 1 ] || [ $has_lima -eq 1 ] || [ $has_mali -eq 1 ]; then
+        log_message "INFO" "Setting OpenGL environment variables"
+        export SDL_VIDEODRIVER="x11"  # Force X11 for better OpenGL support
+        export SDL_VIDEO_X11_VISUALID=""  # Let SDL choose the best visual
+        export MESA_GL_VERSION_OVERRIDE="3.0"  # Request OpenGL 3.0 compatibility
+        
+        # Mali/Lima specific optimizations
+        if [ $has_lima -eq 1 ] || [ $has_mali -eq 1 ]; then
+            log_message "INFO" "Applying Mali/Lima specific optimizations"
+            export LIMA_DEBUG=1  # Enable Lima debug for better error reporting
+            export PAN_MESA_DEBUG=sync  # Synchronization mode for Panfrost/Lima
+            export MESA_DEBUG=""  # Disable Mesa debug for performance
+            
+            # Optimize for Mali texture handling
+            export MESA_GLSL_CACHE_DISABLE=true
+            export GALLIUM_DRIVER="lima"  # Force Lima driver when available
+        fi
+    fi
     
     # Export AVX2 detection for both runtime and compilation
     export PYGAME_DETECT_AVX2=1
@@ -142,6 +195,12 @@ detect_hardware_acceleration() {
 
 # Detect and configure hardware acceleration
 detect_hardware_acceleration
+
+# Set additional OpenGL environment variables
+log_message "INFO" "Setting additional OpenGL environment variables"
+export SDL_HINT_RENDER_DRIVER="opengl"
+export SDL_HINT_RENDER_OPENGL_SHADERS="1"
+export SDL_HINT_RENDER_SCALE_QUALITY="1"
 
 # Set PyGame-specific optimizations for resource-constrained systems
 log_message "INFO" "Configuring PyGame for optimal performance on embedded systems"
