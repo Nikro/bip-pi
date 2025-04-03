@@ -382,9 +382,20 @@ class UINode:
                     logger.info(f"Toggled fullscreen mode to {self.fullscreen}")
     
     def _check_messages(self) -> None:
-        """
-        Check for messages from other nodes with minimal blocking.
+        """Check for messages from other nodes with minimal blocking."""
         message = self.subscriber.receive(timeout=10)
+        if message:
+            # Update state based on the message
+            self.state.update_from_message(message)
+    
+    def _update_animation(self) -> None:
+        """Update animation state."""
+        self.current_frame = (self.current_frame + 1) % self.assets.animation_frames
+        self.debug_metrics["animation_frame"] = self.current_frame
+    
+    def _render_top_panel(self, center_x: float, center_y: float) -> None:
+        """
+        Render the top panel with animated pulsing circle.
         Uses direct OpenGL rendering for efficiency.
         
         Args:
