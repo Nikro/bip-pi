@@ -109,112 +109,47 @@ fi
 # Try to activate the Python environment
 log_message "INFO" "Activating Python environment..."
 
-# Check for hardware acceleration options - enhanced with Lima/Mali400 support
+# Detect and configure hardware acceleration
 detect_hardware_acceleration() {
-    log_message "INFO" "Detecting hardware acceleration capabilities for Mali400/Lima..."
+    log_message "INFO" "Detecting hardware acceleration capabilities..."
     
     # Variables to track hardware acceleration status
-    local has_opengl=0
     local has_lima=0
     local has_mali=0
     
-    # Check for Lima/Mali400 driver in kernel modules - most reliable method
+    # Check for Lima/Mali400 driver in kernel modules
     if lsmod | grep -q -E 'lima|mali|gpu_sched|drm_shmem_helper' 2>/dev/null; then
-        log_message "INFO" "Lima/Mali GPU driver detected as loaded kernel module"
+        log_message "INFO" "Lima/Mali GPU driver detected"
         has_lima=1
-    fi
-    
-    # Check for OpenGL support with glxinfo if available
-    if command -v glxinfo &>/dev/null; then
-        # Run with DISPLAY explicitly set (works better with SSH sessions)
-        local gl_output
-        DISPLAY=:0 gl_output=$(DISPLAY=:0 glxinfo 2>/dev/null) || gl_output=""
-        
-        # Check for direct rendering
-        if echo "$gl_output" | grep -i "direct rendering: yes" > /dev/null; then
-            log_message "INFO" "OpenGL hardware acceleration available"
-            has_opengl=1
-        fi
-        
-        # Get OpenGL vendor and renderer information
-        local gl_vendor=$(echo "$gl_output" | grep "OpenGL vendor" | sed 's/^.*: //')
-        local gl_renderer=$(echo "$gl_output" | grep "OpenGL renderer" | sed 's/^.*: //')
-        
-        log_message "INFO" "OpenGL vendor: $gl_vendor"
-        log_message "INFO" "OpenGL renderer: $gl_renderer"
-        
-        if [[ -n "$gl_renderer" ]] && { [[ "$gl_renderer" == *"Mali"* ]] || [[ "$gl_renderer" == *"lima"* ]]; }; then
-            log_message "INFO" "Mali/Lima GPU confirmed: $gl_renderer"
-            has_mali=1
-        fi
-    else
-        log_message "WARNING" "glxinfo not available - using hardware detection methods"
-        
-        # Try to install mesa-utils if missing
-        if command -v apt-get &>/dev/null; then
-            log_message "INFO" "Installing mesa-utils for better GPU detection..."
-            sudo apt-get install -y mesa-utils &>/dev/null
-        fi
     fi
     
     # Check for specific Mali400 hardware on Allwinner SoCs
     if grep -q -E "Allwinner|sun8i" /proc/cpuinfo 2>/dev/null || 
        grep -q -E "Allwinner|sun8i" /proc/device-tree/compatible 2>/dev/null; then
-        log_message "INFO" "Allwinner SoC detected with Mali400 GPU - enabling hardware acceleration"
-        has_lima=1
+        log_message "INFO" "Allwinner SoC with Mali400 GPU detected"
         has_mali=1
-        has_opengl=1
     fi
     
-    # Set minimal environment variables for Mali400/Lima support
-    # Let PyGame detect and configure most settings automatically
+    # Set minimal environment variables for hardware acceleration
+    export SDL_VIDEODRIVER="x11"  # Use X11 driver for best compatibility
+    export PYGAME_DISPLAY=:0      # Ensure display is set
     
-    # Forces the PyGame hardwareaccel flag to be used
-    export PYGAME_HWSURFACE=1
-    export PYGAME_DOUBLEBUF=1
-    
-    # Ensure display setup works properly
-    export PYGAME_DISPLAY=:0
-    export SDL_VIDEODRIVER="x11"
-    
-    # Ensure AVX2 detection for better performance
-    export PYGAME_DETECT_AVX2=1
-    
-    # Only set critical driver variables if hardware was detected
-    if [ $has_opengl -eq 1 ] || [ $has_lima -eq 1 ] || [ $has_mali -eq 1 ]; then
-        log_message "INFO" "Setting minimal hardware acceleration variables for Mali400/Lima"
+    # Only set hardware-specific variables if Mali/Lima GPU is detected
+    if [ $has_lima -eq 1 ] || [ $has_mali -eq 1 ]; then
+        log_message "INFO" "Enabling Mali400/Lima GPU optimizations"
         
-        # Set only essential variables and let PyGame auto-detect the rest
-        export SDL_HINT_RENDER_DRIVER="opengl"
-        export SDL_RENDER_DRIVER="opengl"
+        # Use hardware acceleration in PyGame
+        export PYGAME_HWSURFACE=1
+        export PYGAME_DOUBLEBUF=1
+        export PYGAME_DETECT_AVX2=1
         
-        # These settings worked well in our testing
-        export SDL_HINT_RENDER_SCALE_QUALITY="0"  # Nearest neighbor (faster)
-        export SDL_HINT_RENDER_BATCHING="1"       # Enable batching for better performance
+        # Texture filtering - nearest is faster on Mali400
+        export SDL_HINT_RENDER_SCALE_QUALITY="0"
     fi
 }
 
 # Detect and configure hardware acceleration
 detect_hardware_acceleration
-
-# Set additional OpenGL environment variables
-log_message "INFO" "Setting additional OpenGL environment variables"
-export SDL_HINT_RENDER_DRIVER="opengl"
-export SDL_HINT_RENDER_OPENGL_SHADERS="1"
-export SDL_HINT_RENDER_SCALE_QUALITY="1"
-
-# Set PyGame-specific optimizations for resource-constrained systems
-log_message "INFO" "Configuring PyGame for optimal performance on embedded systems"
-
-# Check for limited resources and set additional performance flags
-if [ -f "/proc/cpuinfo" ]; then
-    CPU_CORES=$(grep -c "processor" /proc/cpuinfo)
-    
-    if [ "$CPU_CORES" -le 2 ]; then
-        log_message "INFO" "Limited CPU resources detected, enabling additional performance optimizations"
-        export PYGAME_BLEND_ALPHA_SDL2=1  # Use SDL2's alpha blending (faster)
-    fi
-fi
 
 # Activate virtual environment FIRST, then check for poetry
 if [ -f ".venv/bin/activate" ]; then

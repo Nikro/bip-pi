@@ -167,7 +167,7 @@ class UIAssets:
     
     def _create_animation_frames(self, color, num_frames):
         """
-        Pre-render animation frames using surfaces with pre-drawn circles optimized for Mali400/Lima.
+        Pre-render animation frames optimized for Mali400/Lima GPU.
         
         Args:
             color: RGB color tuple for the circle
@@ -179,24 +179,22 @@ class UIAssets:
         frames = []
         animation_size = self.animation_size
         
-        # Use power-of-two texture dimensions for better GPU performance
-        # Mali GPUs are optimized for power-of-two textures
+        # Mali400 performs best with power-of-two textures
         pow2_size = 2**math.ceil(math.log2(animation_size))
         
         for i in range(num_frames):
-            # Calculate subtle pulse factor - improved smoothness with better range
+            # Calculate pulse factor with smooth sine wave
             phase = (i / num_frames) * 2 * math.pi
             pulse_factor = 0.85 + 0.15 * ((math.sin(phase) + 1) / 2)
             
-            # Create hardware-optimized surface
-            # Using power-of-two dimensions and 32-bit color for Mali GPUs
-            surface = pygame.Surface((pow2_size, pow2_size), flags=SRCALPHA)
+            # Create a hardware-optimized surface
+            surface = pygame.Surface((animation_size, animation_size), flags=SRCALPHA)
             surface.fill((0, 0, 0, 0))  # Transparent background
             
             # Calculate circle parameters
             radius = int(animation_size // 2.5 * pulse_factor)
-            center_x = pow2_size // 2
-            center_y = pow2_size // 2
+            center_x = animation_size // 2
+            center_y = animation_size // 2
             
             # Use the most efficient drawing method available
             if HAS_GFXDRAW:
@@ -204,7 +202,7 @@ class UIAssets:
                 pygame.gfxdraw.filled_circle(
                     surface, center_x, center_y, radius, color
                 )
-                # Then add an antialiased edge for smoother appearance
+                # Add an antialiased edge for smoother appearance
                 pygame.gfxdraw.aacircle(
                     surface, center_x, center_y, radius, color
                 )
@@ -212,18 +210,8 @@ class UIAssets:
                 # Standard circle drawing as fallback
                 pygame.draw.circle(surface, color, (center_x, center_y), radius)
             
-            # Convert surface with specific flags for hardware acceleration
-            # For Mali400/Lima: 32-bit with alpha optimized for hardware
+            # Convert to hardware-optimized format - critical for performance
             hardware_surface = surface.convert_alpha()
-            
-            # Force upload to texture memory if possible
-            # This ensures the texture is already in VRAM, not CPU memory
-            if hasattr(hardware_surface, 'get_locked'):
-                try:
-                    hardware_surface.unlock()
-                except:
-                    pass
-                
             frames.append(hardware_surface)
         
         return frames
@@ -348,7 +336,7 @@ class UINode:
     def _configure_environment(self):
         """
         Configure environment variables for optimal Mali400/Lima performance.
-        Uses minimal settings to avoid conflicts while ensuring hardware acceleration.
+        Uses hardware-optimized settings for the best performance.
         """
         # Set essential PyGame environment variables
         os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
@@ -357,9 +345,8 @@ class UINode:
         # Force using X11 driver which has better compatibility with Lima
         os.environ['SDL_VIDEODRIVER'] = 'x11'
         
-        # Force OpenGL renderer with specific optimizations
-        os.environ['SDL_RENDER_DRIVER'] = 'opengl'
-        os.environ['SDL_HINT_RENDER_DRIVER'] = 'opengl'
+        # Use hardware renderer but don't force OpenGL
+        os.environ['SDL_RENDER_DRIVER'] = 'x11'
         
         # Use nearest neighbor filtering (faster on Mali GPU)
         os.environ['SDL_HINT_RENDER_SCALE_QUALITY'] = '0'
@@ -367,8 +354,9 @@ class UINode:
         # Enable efficient batch processing of draw calls
         os.environ['SDL_HINT_RENDER_BATCHING'] = '1'
         
-        # Disable vertical sync for maximum performance
-        os.environ['SDL_HINT_RENDER_VSYNC'] = '0'
+        # Disable vertical sync at driver level if configured that way in the app
+        if not self.vsync:
+            os.environ['SDL_HINT_RENDER_VSYNC'] = '0'
         
         # Request direct framebuffer access for better performance
         os.environ['SDL_HINT_FRAMEBUFFER_ACCELERATION'] = '1'
@@ -378,58 +366,59 @@ class UINode:
     
     def _create_display_surface(self):
         """
-        Create optimized display surface with appropriate flags.
-        Properly enables OpenGL hardware acceleration for Mali400/Lima GPU.
+        Create optimized display surface with hardware acceleration for Mali400/Lima GPU.
+        
+        Uses minimal flags optimized for surface-based rendering with hardware acceleration.
+        Avoids OpenGL mode which doesn't support pygame's surface-based drawing approach.
         """
+        # Start with empty flags
         flags = 0
         
-        # Enable OpenGL rendering for Mali400/Lima hardware acceleration
-        flags |= pygame.OPENGL
+        # Add hardware acceleration flags - use only what's necessary
+        if self.use_hw_accel:
+            flags |= pygame.DOUBLEBUF  # Double buffering for smoother animation
+            logger.info("Hardware acceleration enabled with double buffering")
+            
+            # On Pygame 2.0+, HWSURFACE is only needed for fullscreen, but doesn't hurt
+            flags |= pygame.HWSURFACE
+            
+            # Add additional hardware acceleration if available
+            if HAS_HWACCEL:
+                flags |= HWACCEL | ASYNCBLIT  # Use hardware-accelerated blits
+                logger.info("Enhanced hardware acceleration flags applied")
+        else:
+            logger.info("Hardware acceleration disabled - using software rendering")
+            flags |= pygame.SWSURFACE
         
         # Add fullscreen if configured
         if self.fullscreen:
             flags |= pygame.FULLSCREEN
-        
-        # Add double buffering with OpenGL for smooth animation
-        flags |= pygame.DOUBLEBUF
         
         # Add scaling support if needed
         if self.config.get("ui", {}).get("allow_scaling", False):
             flags |= pygame.SCALED
             logger.info("Display scaling enabled")
         
-        # Only use software rendering if hardware acceleration is explicitly disabled
-        if not self.use_hw_accel:
-            logger.info("Hardware acceleration disabled - using software rendering")
-            flags &= ~pygame.OPENGL  # Remove OpenGL flag
-            flags |= pygame.SWSURFACE  # Use software surface instead
-        else:
-            logger.info("Hardware acceleration enabled with OpenGL renderer")
-        
         # Create the display with the configured flags
         try:
             if self.vsync:
-                # Use vsync to prevent screen tearing with OpenGL
                 logger.info("Creating display with vsync enabled")
                 self.screen = pygame.display.set_mode((self.width, self.height), flags, vsync=1)
             else:
-                # Without vsync for maximum frame rate
                 logger.info("Creating display without vsync for maximum performance")
                 self.screen = pygame.display.set_mode((self.width, self.height), flags)
             
-            # Log the actual flags that were used
+            # Log display info
             logger.info(f"Display created with flags: {flags}")
+            
+            # Set display caption and icon
+            pygame.display.set_caption("Reactive Companion")
         except pygame.error as e:
-            logger.error(f"Failed to create display with OpenGL. Error: {e}")
-            logger.info("Falling back to software rendering")
+            logger.error(f"Failed to create display: {e}")
+            logger.info("Falling back to minimal configuration")
             
-            # Fall back to software rendering if OpenGL fails
-            fallback_flags = 0
-            if self.fullscreen:
-                fallback_flags |= pygame.FULLSCREEN
-            
-            self.screen = pygame.display.set_mode((self.width, self.height), fallback_flags)
-            logger.info(f"Created fallback display with flags: {fallback_flags}")
+            # Fall back to minimal configuration with software rendering
+            self.screen = pygame.display.set_mode((self.width, self.height), pygame.SWSURFACE)
     
     def _handle_resolution_mismatch(self, actual_width, actual_height):
         """Handle resolution mismatch by trying alternate approaches."""
@@ -522,58 +511,66 @@ class UINode:
     
     def _main_loop(self) -> None:
         """
-        Optimized main loop for OpenGL hardware-accelerated rendering.
-        Uses full screen updates via pygame.display.flip() as required by the OpenGL renderer.
+        Optimized main loop with efficient surface management and dirty rectangle tracking.
+        
+        Uses the Mali400/Lima GPU's hardware acceleration capabilities while minimizing
+        operations that could cause performance issues.
         """
         # Use pygame's time management for more precise timing
         clock = pygame.time.Clock()
         
-        # For OpenGL mode, we'll render directly to the screen surface
-        # No subsurfaces or dirty rects as they aren't compatible with OpenGL mode
-        
-        # Initial fill of the background
-        self.screen.fill(BLACK)
-        pygame.display.flip()
-        
-        # Create drawing surfaces compatible with OpenGL mode
-        # These are standard surfaces that we'll blit to the screen
-        self.top_surface = pygame.Surface((self.width, self.top_panel_height))
-        self.bottom_surface = pygame.Surface((self.width, self.height - self.top_panel_height))
+        # Create subsurfaces for more efficient updates
+        self.top_surface = self.screen.subsurface((0, 0, self.width, self.top_panel_height))
+        self.bottom_surface = self.screen.subsurface((0, self.top_panel_height, 
+                                                     self.width, self.height - self.top_panel_height))
         
         # Animation position
         anim_center_x = (self.width - self.assets.animation_size) // 2
         anim_center_y = (self.top_panel_height - self.assets.animation_size) // 2
         
+        # Maintain list of dirty rectangles for partial updates - more memory efficient
+        dirty_rects = []
+        
+        # Initial full screen draw
+        self.screen.fill(BLACK)
+        pygame.display.flip()
+        
         while self.is_running:
             # Time tracking for this frame
             frame_start = time.perf_counter()
             
-            # Handle events
-            self._process_events()
+            # Clear dirty rects for this frame
+            dirty_rects.clear()
             
-            # Check for messages (non-blocking)
+            # Handle events and check messages
+            self._process_events()
             self._check_messages()
             
             # Update animation state
             self._update_animation()
             
-            # Clear surfaces
-            self.top_surface.fill(BLACK)
-            
-            # Only update bottom panel less frequently (every 10 frames)
-            self.bottom_update_counter += 1
-            if self.bottom_update_counter >= 10:
-                self.bottom_surface.fill(BLACK)
-                self.bottom_update_counter = 0
-            
             # Get current animation frame
             animation_frame = self.assets.animation_frames[self.current_frame]
+            
+            # Only clear the animation area - Mali400 is sensitive to large fill operations
+            animation_rect = pygame.Rect(
+                anim_center_x, anim_center_y, 
+                animation_frame.get_width(), animation_frame.get_height()
+            )
+            self.top_surface.fill(BLACK, animation_rect)
             
             # Draw animation to top surface
             self.top_surface.blit(animation_frame, (anim_center_x, anim_center_y))
             
-            # Render bottom panel and debug info less frequently
-            if self.bottom_update_counter == 0:
+            # Add only the animation area to dirty rectangles
+            dirty_rects.append(animation_rect)
+            
+            # Update bottom panel less frequently (every 10 frames)
+            self.bottom_update_counter += 1
+            if self.bottom_update_counter >= 10:
+                # Clear and redraw the bottom panel
+                self.bottom_surface.fill(BLACK)
+                
                 # Draw separator line
                 pygame.draw.line(
                     self.bottom_surface, 
@@ -582,62 +579,24 @@ class UINode:
                     (self.width, 0)
                 )
                 
-                # Render mode text and status information
-                mode = self.state.mode
-                self.assets.render_text(
-                    self.bottom_surface,
-                    f"Mode: {mode.name}",
-                    "title",
-                    20, 
-                    20,
-                    WHITE
-                )
+                # Add separator to dirty rects
+                separator_rect = pygame.Rect(0, 0, self.width, 1)
+                dirty_rects.append(separator_rect.move(0, self.top_panel_height))
                 
-                # System status information
-                y_pos = 20 + self.assets.title_font_size + 10
-                status_info = [
-                    f"System Status: Online",
-                    f"Temperature: {self.monitor.temperature:.1f}°C"
-                ]
+                # Render status information
+                self._render_status_info(dirty_rects)
                 
-                for info in status_info:
-                    self.assets.render_text(
-                        self.bottom_surface,
-                        info,
-                        "text",
-                        20,
-                        y_pos,
-                        LIGHT_GRAY
-                    )
-                    y_pos += self.assets.text_font_size + 5
-                
-                # Render debug if enabled
-                if self.state.show_debug:
-                    self._render_debug_for_opengl()
+                # Reset counter
+                self.bottom_update_counter = 0
             
-            # Blit surfaces to the main screen
-            self.screen.blit(self.top_surface, (0, 0))
-            self.screen.blit(self.bottom_surface, (0, self.top_panel_height))
+            # Store count for debug
+            self.debug_metrics["dirty_rects_count"] = len(dirty_rects)
             
-            # With OpenGL, we must use flip() for all updates
-            pygame.display.flip()
+            # Update only the dirty rectangles for efficiency
+            pygame.display.update(dirty_rects)
             
             # Update FPS counter
             self._update_fps_counter(frame_start)
-            
-            # Store performance metrics
-            frame_time = (time.perf_counter() - frame_start) * 1000  # Convert to ms
-            self.debug_metrics["frame_render_times"].append(frame_time)
-            
-            # Keep only the last 10 frame times
-            if len(self.debug_metrics["frame_render_times"]) > 10:
-                self.debug_metrics["frame_render_times"].pop(0)
-            
-            # Calculate average render time
-            if self.debug_metrics["frame_render_times"]:
-                self.debug_metrics["avg_render_time"] = sum(
-                    self.debug_metrics["frame_render_times"]
-                ) / len(self.debug_metrics["frame_render_times"])
             
             # Limit frame rate efficiently
             clock.tick(self.fps)
@@ -698,9 +657,50 @@ class UINode:
         """Update animation state."""
         self.current_frame = (self.current_frame + 1) % len(self.assets.animation_frames)
     
-    def _render_debug_for_opengl(self) -> None:
+    def _render_status_info(self, dirty_rects) -> None:
+        """Render status information on the bottom panel."""
+        mode = self.state.mode
+        self.assets.render_text(
+            self.bottom_surface,
+            f"Mode: {mode.name}",
+            "title",
+            20, 
+            20,
+            WHITE
+        )
+        
+        # System status information
+        y_pos = 20 + self.assets.title_font_size + 10
+        status_info = [
+            f"System Status: Online",
+            f"Temperature: {self.monitor.temperature:.1f}°C"
+        ]
+        
+        for info in status_info:
+            self.assets.render_text(
+                self.bottom_surface,
+                info,
+                "text",
+                20,
+                y_pos,
+                LIGHT_GRAY
+            )
+            y_pos += self.assets.text_font_size + 5
+        
+        # Add the status area to dirty rectangles
+        status_rect = pygame.Rect(
+            0, self.top_panel_height, 
+            self.width, y_pos + self.top_panel_height
+        )
+        dirty_rects.append(status_rect)
+        
+        # Render debug if enabled
+        if self.state.show_debug:
+            self._render_debug(dirty_rects)
+    
+    def _render_debug(self, dirty_rects) -> None:
         """
-        Render debug information for OpenGL mode.
+        Render debug information for hardware-accelerated mode.
         This version renders directly to the bottom surface.
         """
         # Basic debug information
@@ -712,8 +712,6 @@ class UINode:
             f"Res: {self.width}x{self.height}",
             "",  # Empty line as separator
             f"RENDER: {self.debug_metrics['avg_render_time']:.2f}ms",
-            f"OPENGL: Active",
-            f"VSYNC: {'On' if self.vsync else 'Off'}",
             f"CACHE: {self.debug_metrics['animation_cache_size']:.1f}KB",
             f"GFXDRAW: {'Yes' if self.debug_metrics['using_gfxdraw'] else 'No'}",
             f"ANIM: {self.current_frame+1}/{len(self.assets.animation_frames)}",
@@ -749,6 +747,9 @@ class UINode:
                 self.height - self.top_panel_height - bg_height + (i * (self.assets.small_font_size + 5)) + 5,
                 text_color
             )
+        
+        # Add debug panel area to dirty rectangles
+        dirty_rects.append(bg_rect)
 
 
 def main() -> None:
