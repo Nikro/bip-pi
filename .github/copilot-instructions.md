@@ -11,7 +11,7 @@ Make sure your outputs are professional and adhere to the following requirements
   1. **One Code-Block per File:**  
      Output all code changes for a single file in one code block.
   2. **Skip Unaltered Code:**  
-     Do not output the entire file if only part of it is modified. Use `# ... existing code ...` to skip unaltered sections.
+     Do not output the entire file if only part of it is modified. Use `# ... existing code ...` to skip unaltered sections. Stick to 1 code-block per 1 file rule.
   3. **Method Preservation:**  
      If there are several methods in a file (e.g., `a()`, `b()`, `c()`) and you only alter `a()` and `c()`, include a comment line `# ... existing code ...` between the methods to indicate that `b()` remains unchanged.
   4. **VS Code File Hints:**  
