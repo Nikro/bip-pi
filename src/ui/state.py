@@ -8,7 +8,8 @@ methods for updating and querying the state.
 
 import time
 from enum import Enum, auto
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Deque
+from collections import deque
 
 
 class SystemMode(Enum):
@@ -46,6 +47,18 @@ class UIState:
         self._fps = 0
         self._cpu_usage = 0.0
         self._memory_usage = 0.0
+        
+        # Awareness data tracking
+        self._awareness_data = {
+            "last_transcript": "",
+            "last_recording_path": "",
+            "last_recording_duration": 0.0,
+            "detected_language": "",
+            "last_trigger_time": 0
+        }
+        
+        # History of transcripts (most recent first)
+        self._transcript_history: Deque[Dict[str, Any]] = deque(maxlen=5)
         
         # Registered listeners for state changes
         self._listeners: List[Callable[[str, Any], None]] = []
@@ -104,6 +117,56 @@ class UIState:
             self._last_response = value
             self._last_update_time = time.time()
             self._notify_listeners("last_response", value)
+    
+    @property
+    def last_transcript(self) -> str:
+        """Get the last transcript from audio monitoring."""
+        return self._awareness_data["last_transcript"]
+    
+    @last_transcript.setter
+    def last_transcript(self, value: str) -> None:
+        """
+        Set the last transcript from audio monitoring.
+        
+        Args:
+            value: The new transcript text
+        """
+        if self._awareness_data["last_transcript"] != value:
+            self._awareness_data["last_transcript"] = value
+            self._last_update_time = time.time()
+            self._notify_listeners("last_transcript", value)
+    
+    @property
+    def transcript_history(self) -> List[Dict[str, Any]]:
+        """Get the history of transcripts (most recent first)."""
+        return list(self._transcript_history)
+    
+    def add_transcript(self, transcript: str, recording_path: str, duration: float) -> None:
+        """
+        Add a new transcript to the history.
+        
+        Args:
+            transcript: The transcribed text
+            recording_path: Path to the recording file
+            duration: Duration of the recording in seconds
+        """
+        if not transcript:
+            return
+            
+        entry = {
+            "text": transcript,
+            "path": recording_path,
+            "duration": duration,
+            "timestamp": time.time()
+        }
+        
+        self._transcript_history.appendleft(entry)
+        self.last_transcript = transcript
+        self._awareness_data["last_recording_path"] = recording_path
+        self._awareness_data["last_recording_duration"] = duration
+        
+        # Notify about transcript history change
+        self._notify_listeners("transcript_history", self.transcript_history)
     
     @property
     def error_message(self) -> str:
@@ -274,9 +337,20 @@ class UIState:
         if msg_type == "trigger_event":
             # Handle trigger events
             trigger_type = payload.get("trigger_type")
+            data = payload.get("data", {})
+            
             if trigger_type == "audio":
+                # Handle audio trigger
                 self.mode = SystemMode.LISTENING
-                self.last_message = payload.get("data", {}).get("text", "")
+                
+                # Process audio transcript
+                transcript = data.get("transcript", "")
+                recording_path = data.get("recording_path", "")
+                duration = data.get("duration", 0.0)
+                
+                if transcript:
+                    self.add_transcript(transcript, recording_path, duration)
+                    self.last_message = transcript
         
         elif msg_type == "response":
             # Handle responses
@@ -307,6 +381,8 @@ class UIState:
             "fps": self._fps,
             "cpu_usage": self._cpu_usage,
             "memory_usage": self._memory_usage,
+            "awareness": self._awareness_data,
+            "transcript_history": list(self._transcript_history)
         }
 
 

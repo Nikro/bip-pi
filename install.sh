@@ -31,20 +31,20 @@ sudo apt update || echo "Warning: apt update failed, continuing anyway"
 # Basic system packages - only essential packages, not Python packages
 separator "Installing essential packages..."
 sudo apt install -y --no-install-recommends \
-  python3-pip python3-dev git \
+  python3-pip python3-dev git wget tar \
   xserver-xorg xinit openbox tint2 xterm feh epiphany-browser conky \
   openssh-server python3-venv python3-wheel \
-  zenity xterm \
+  zenity xterm build-essential \
+  libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev \
+  libavfilter-dev libswscale-dev libswresample-dev pkg-config ffmpeg cmake \
   || echo "Warning: Some packages may have failed to install, continuing anyway"
 
-# Install audio, PyGame, and graphics dependencies
-separator "Installing audio and graphics dependencies..."
+# Install graphics dependencies
+separator "Installing graphics dependencies..."
 sudo apt install -y \
-  portaudio19-dev libasound2-dev libportaudio2 \
-  libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
-  libfreetype6-dev libportmidi-dev \
-  pkg-config \
-  || echo "Warning: Some audio/graphics packages may have failed to install, continuing anyway"
+  libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev \
+  libfreetype6-dev pkg-config \
+  || echo "Warning: Some graphics packages may have failed to install, continuing anyway"
 
 ###############################################################################
 # 3. PROJECT SETUP - CLONE FROM GIT
@@ -99,7 +99,7 @@ EOF
 chmod 755 "${HOME_DIR}/.config/openbox/autostart"
 
 # Configure screen rotation if needed
-if [ "$SCREEN_ROTATION" -eq 90 ]; then 
+if [ "$SCREEN_ROTATION" -eq 90 ]; then
   separator "Configuring screen rotation via X11 (90 degrees)..."
   sudo mkdir -p /etc/X11/xorg.conf.d/
   sudo tee /etc/X11/xorg.conf.d/90-monitor.conf > /dev/null <<EOF
@@ -123,9 +123,12 @@ if [ -f "\${HOME}/.bashrc" ]; then
     source "\${HOME}/.bashrc"
 fi
 
-# Start X only on tty1
-if [[ -z "\$DISPLAY" ]] && [[ \$(tty) == /dev/tty1 ]]; then
+T="\$(tty)"
+
+if [[ "\$T" == "/dev/tty1" ]]; then
   exec startx
+else
+  echo "DEBUG: NOT on tty1, skipping startx"
 fi
 EOF
 chmod 755 "${HOME_DIR}/.bash_profile" || echo "Warning: Unable to set permissions on .bash_profile"
@@ -184,7 +187,7 @@ echo "==> Detected Python version: $PYTHON_VERSION"
 if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]); then
     echo "==> Python version $PYTHON_VERSION is below the required 3.10"
     echo "==> Attempting to install Python 3.10 or later..."
-    
+
     # Try to install Python 3.10
     if command -v add-apt-repository &>/dev/null; then
         # Add deadsnakes PPA if it doesn't exist
@@ -193,7 +196,7 @@ if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" 
             sudo add-apt-repository -y ppa:deadsnakes/ppa
             sudo apt update
         fi
-        
+
         # Try Python 3.11 first (if available)
         echo "==> Attempting to install Python 3.11..."
         if sudo apt install -y python3.11 python3.11-venv python3.11-dev; then
@@ -204,12 +207,12 @@ if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" 
         else
             echo "==> Python 3.11 not available, trying Python 3.10..."
         fi
-        
+
         # If Python 3.11 failed or not available, try Python 3.10
         if [ -z "$PYTHON_CMD" ] || [ "$PYTHON_CMD" = "python3" ]; then
             echo "==> Installing Python 3.10..."
             sudo apt install -y python3.10 python3.10-venv python3.10-dev
-            
+
             if command -v python3.10 &>/dev/null; then
                 echo "==> Successfully installed Python 3.10"
                 PYTHON_CMD="python3.10"
@@ -241,62 +244,63 @@ source .venv/bin/activate
 echo "==> Upgrading pip..."
 pip install --upgrade pip setuptools wheel
 
+# Install Cython first for better builds
+echo "==> Installing Cython (for optimized builds)..."
+pip install --upgrade cython
+
 # Install Poetry 2.1.2 or later
 echo "==> Installing Poetry 2.1.2 or later..."
 pip install "poetry>=2.1.2"
 
 # Pre-install problematic packages with pip before using Poetry
-echo "==> Pre-installing packages that might cause build issues..."
+echo "==> Pre-installing essential packages..."
 export PYGAME_DETECT_AVX2=1
-pip install wheel
-pip install --no-build-isolation pyaudio
-
-# Reinstall pygame
-pip uninstall -y pygame
-pip install --no-build-isolation pygame
+pip install pygame
 
 # Verify Poetry installation
 if command -v poetry &>/dev/null; then
     POETRY_VERSION=$(poetry --version | awk '{print $3}')
     echo "==> Poetry $POETRY_VERSION installed successfully!"
-    
+
     # Verify Poetry version meets minimum requirements
     POETRY_MAJOR=$(echo $POETRY_VERSION | cut -d'.' -f1)
     POETRY_MINOR=$(echo $POETRY_VERSION | cut -d'.' -f2)
     POETRY_PATCH=$(echo $POETRY_VERSION | cut -d'.' -f3 | cut -d'-' -f1) # Handle potential beta versions
-    
+
     # Configure Poetry to use the virtual environment we just created
     poetry config virtualenvs.in-project true --local
-    
+
     echo "==> Installing project dependencies with Poetry..."
-    if poetry install; then
+    # Add --no-cache option to potentially help with dependency resolution issues
+    if poetry install --no-cache; then
         echo "==> Dependencies installed successfully!"
     else
         echo "==> WARNING: Poetry install failed. Checking Python compatibility..."
-        
+
         # Get the required Python version from pyproject.toml
         REQUIRED_PYTHON=$(grep "python =" ${PROJECT_DIR}/pyproject.toml | head -1 | cut -d '"' -f 2 | sed 's/\^//')
         echo "==> Project requires Python $REQUIRED_PYTHON"
-        
+
         if [ "$PYTHON_MAJOR" -lt "${REQUIRED_PYTHON%%.*}" ] || ([ "$PYTHON_MAJOR" -eq "${REQUIRED_PYTHON%%.*}" ] && [ "$PYTHON_MINOR" -lt "$(echo $REQUIRED_PYTHON | cut -d '.' -f 2)" ]); then
             echo "==> ERROR: Your Python version ($PYTHON_VERSION) is lower than the required version ($REQUIRED_PYTHON)"
             echo "==> Please install Python $REQUIRED_PYTHON or later and run this script again"
         fi
-        
+
         echo "==> Installing core dependencies directly with pip as fallback..."
-        pip install -U pyzmq numpy psutil pydantic python-dotenv pygame
-        # Note: PyAudio and Pygame should already be installed from the pre-install step
+        # Ensure sherpa-onnx is included in fallback
+        pip install -U pyzmq numpy psutil pydantic python-dotenv pygame cython
     fi
 else
     echo "==> ERROR: Poetry installation failed!"
     echo "==> This is critical as Poetry 2.1.2+ is required for managing project dependencies."
     echo "==> The fallback installation with pip might not include all required dependencies."
     echo "==> Installing core dependencies directly with pip as emergency fallback..."
-    pip install -U pyzmq pygame pyaudio numpy psutil pydantic python-dotenv
+    # Ensure sherpa-onnx is included in fallback
+    pip install -U pyzmq pygame pyaudio numpy psutil pydantic python-dotenv cython
 fi
 
 ###############################################################################
-# 6. ENSURE BASIC ENV CONFIGURATION
+# 7. ENSURE BASIC ENV CONFIGURATION
 ###############################################################################
 separator "Creating basic environment configuration"
 

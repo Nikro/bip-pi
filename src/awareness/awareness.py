@@ -9,153 +9,18 @@ import argparse
 import time
 import threading
 from typing import Dict, Any, Optional, List
-import numpy as np
+import os
+from pathlib import Path
 
 from ..common import (
     setup_logger, PublisherBase, DEFAULT_PORTS, MessageType, 
     TimedTask, safe_execute
 )
 from .config import AwarenessConfig
+from .audio_monitoring import AudioMonitor
 
 # Setup logger
 logger = setup_logger("awareness")
-
-
-class AudioMonitor:
-    """Monitors audio input for trigger events."""
-    
-    def __init__(self, config: AwarenessConfig):
-        """
-        Initialize the audio monitor.
-        
-        Args:
-            config: Configuration for the audio monitor
-        """
-        self.config = config
-        self.is_running = False
-        self.thread: Optional[threading.Thread] = None
-        
-        # Try to import pyaudio
-        try:
-            import pyaudio
-            self.pa = pyaudio.PyAudio()
-            logger.info("PyAudio initialized successfully")
-        except ImportError:
-            logger.error("PyAudio not found. Audio monitoring will be disabled.")
-            self.pa = None
-        except Exception as e:
-            logger.error(f"Error initializing PyAudio: {str(e)}")
-            self.pa = None
-            
-        # Audio stream
-        self.stream = None
-    
-    def start(self) -> bool:
-        """
-        Start audio monitoring in a separate thread.
-        
-        Returns:
-            True if started successfully, False otherwise
-        """
-        if self.is_running:
-            logger.warning("Audio monitor is already running")
-            return True
-            
-        if self.pa is None:
-            logger.error("PyAudio not initialized. Cannot start audio monitoring.")
-            return False
-            
-        self.is_running = True
-        self.thread = threading.Thread(target=self._monitor_loop, daemon=True)
-        self.thread.start()
-        logger.info("Audio monitoring started")
-        return True
-    
-    def stop(self) -> None:
-        """Stop audio monitoring."""
-        self.is_running = False
-        if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
-            self.stream = None
-            
-        if self.thread:
-            self.thread.join(timeout=2.0)
-            
-        logger.info("Audio monitoring stopped")
-    
-    def _monitor_loop(self) -> None:
-        """Main audio monitoring loop."""
-        import pyaudio
-        
-        # Audio parameters
-        format = pyaudio.paInt16
-        channels = 1
-        rate = self.config.sample_rate
-        chunk = self.config.chunk_size
-        
-        # Open audio stream
-        try:
-            self.stream = self.pa.open(
-                format=format,
-                channels=channels,
-                rate=rate,
-                input=True,
-                frames_per_buffer=chunk
-            )
-            logger.info(f"Audio stream opened: {rate}Hz, {channels} channel(s)")
-        except Exception as e:
-            logger.error(f"Error opening audio stream: {str(e)}")
-            self.is_running = False
-            return
-        
-        # Process audio in chunks
-        while self.is_running:
-            try:
-                # Read audio data
-                data = self.stream.read(chunk, exception_on_overflow=False)
-                audio_data = np.frombuffer(data, dtype=np.int16)
-                
-                # Process the audio data (simple amplitude-based detection for now)
-                if self._process_audio(audio_data):
-                    logger.info("Audio trigger detected")
-                    # Yield to the main thread to prevent CPU hogging
-                    time.sleep(0.01)
-            except Exception as e:
-                logger.error(f"Error processing audio: {str(e)}")
-                time.sleep(0.1)  # Avoid tight loop on errors
-    
-    def _process_audio(self, audio_data: np.ndarray) -> bool:
-        """
-        Process audio data to detect triggers.
-        
-        Args:
-            audio_data: Numpy array of audio samples
-            
-        Returns:
-            True if a trigger was detected, False otherwise
-        """
-        # Simple amplitude-based detection
-        amplitude = np.abs(audio_data).mean()
-        
-        # Add frequency domain analysis for better trigger detection
-        if len(audio_data) >= self.config.chunk_size:
-            # Perform FFT if we have enough data
-            try:
-                # Calculate power spectrum
-                spectrum = np.abs(np.fft.rfft(audio_data * np.hanning(len(audio_data))))
-                
-                # Check if certain frequency bands exceed thresholds
-                # This could help distinguish human voice from background noise
-                voice_band = spectrum[50:300].mean()  # Approximate human voice frequency range
-                
-                # Could return True based on combined amplitude and frequency analysis
-                return amplitude > self.config.amplitude_threshold or voice_band > (self.config.amplitude_threshold * 0.7)
-            except Exception:
-                # Fall back to simple amplitude check on error
-                pass
-        
-        return amplitude > self.config.amplitude_threshold
 
 
 class AwarenessNode:
@@ -180,11 +45,59 @@ class AwarenessNode:
         logger.info(f"Publisher initialized on port {DEFAULT_PORTS['awareness_pub']}")
         
         # Initialize audio monitor
-        self.audio_monitor = AudioMonitor(self.config)
+        models_dir = Path(os.path.dirname(os.path.abspath(__file__))) / "../../models"
+        models_dir.mkdir(exist_ok=True, parents=True)
+        
+        recordings_dir = Path(os.path.dirname(os.path.abspath(__file__))) / "../../recordings"
+        recordings_dir.mkdir(exist_ok=True, parents=True)
+        
+        self.audio_monitor = AudioMonitor(
+            output_dir=str(recordings_dir),
+            model_path=str(models_dir / "tiny.en")
+        )
+        
+        # Configure audio monitor from awareness config
+        self.audio_monitor.sample_rate = self.config.sample_rate
+        self.audio_monitor.threshold = self.config.get("audio", "threshold", 0.02)
+        self.audio_monitor.min_record_time = self.config.get("audio", "record_seconds", 10)
+        self.audio_monitor.silence_limit = self.config.get("audio", "silence_limit", 2.0)
+        
+        # Subscribe to audio monitor events
+        self.audio_monitor.on_recording_complete = self._on_audio_recording_complete
         
         # Keep track of detected triggers
         self.last_trigger_time = 0
         self.is_running = False
+    
+    def _on_audio_recording_complete(self, recording_path: Path, transcript: Optional[str]) -> None:
+        """
+        Handle completed audio recordings and transcriptions.
+        
+        Args:
+            recording_path: Path to the recorded audio file
+            transcript: Transcribed text (if available)
+        """
+        # Create data payload for the trigger with enhanced information
+        data = {
+            "recording_path": str(recording_path),
+            "duration": self.audio_monitor.last_recording_duration,
+            "transcript": transcript or "",
+            "timestamp": time.time()
+        }
+        
+        # Add transcript file path if available
+        transcript_path = recording_path.with_suffix('.txt')
+        if transcript_path.exists():
+            data["transcript_path"] = str(transcript_path)
+        
+        # Publish trigger event
+        self.publish_trigger("audio", data)
+        
+        # Log the event
+        logger.info(f"Audio recording completed: {recording_path}")
+        if transcript:
+            # Log first 100 characters of transcript for brevity in logs
+            logger.info(f"Transcript: {transcript[:100]}{'...' if len(transcript) > 100 else ''}")
     
     def start(self) -> None:
         """Start the awareness node."""
@@ -196,7 +109,13 @@ class AwarenessNode:
         
         # Start audio monitoring if enabled
         if self.config.audio_enabled:
-            self.audio_monitor.start()
+            logger.info("Starting audio monitoring")
+            # Start in a separate thread to not block the main thread
+            threading.Thread(
+                target=self.audio_monitor.start_monitoring,
+                kwargs={"device": None, "duration": None},
+                daemon=True
+            ).start()
         
         logger.info("Awareness node started")
         
@@ -217,7 +136,7 @@ class AwarenessNode:
         self.is_running = False
         
         # Stop audio monitoring
-        self.audio_monitor.stop()
+        self.audio_monitor.stop_monitoring()
         
         logger.info("Awareness node stopped")
     

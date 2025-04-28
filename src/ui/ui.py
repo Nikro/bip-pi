@@ -414,7 +414,7 @@ class UINode:
     
     def _render_bottom_panel(self) -> None:
         """
-        Render the bottom panel with status information.
+        Render the bottom panel with status information and awareness data.
         Uses OpenGL-based text rendering.
         """
         # Draw separator line
@@ -446,6 +446,81 @@ class UINode:
                 LIGHT_GRAY
             )
             y_pos += self.assets.text_font_size + 5
+        
+        # Draw another separator
+        y_pos += 10
+        draw_line(20, y_pos, self.width - 20, y_pos, GRAY)
+        y_pos += 15
+        
+        # Render awareness information section
+        self._render_awareness_panel(y_pos)
+
+    def _render_awareness_panel(self, start_y: float) -> None:
+        """
+        Render the awareness information panel showing transcript history.
+        
+        Args:
+            start_y: Y coordinate to start rendering from
+        """
+        # Section title
+        self.assets.render_text(
+            "Recent Transcripts",
+            "text",
+            20,
+            start_y,
+            WHITE
+        )
+        
+        y_pos = start_y + self.assets.text_font_size + 10
+        
+        # Get transcript history
+        transcripts = self.state.transcript_history
+        
+        if not transcripts:
+            # No transcripts yet
+            self.assets.render_text(
+                "No transcriptions available yet.",
+                "small",
+                30,
+                y_pos,
+                LIGHT_GRAY
+            )
+            return
+        
+        # Render each transcript entry
+        for i, entry in enumerate(transcripts):
+            # Format time as HH:MM:SS
+            time_str = time.strftime("%H:%M:%S", time.localtime(entry["timestamp"]))
+            
+            # Draw transcript with timestamp
+            header = f"[{time_str}] ({entry['duration']:.1f}s)"
+            self.assets.render_text(
+                header,
+                "small",
+                30,
+                y_pos,
+                (0.7, 0.7, 1.0, 1.0)  # Light blue
+            )
+            
+            # Render the transcript text, potentially wrapping if too long
+            text = entry["text"]
+            if len(text) > 80:  # Simple truncation for now
+                text = text[:77] + "..."
+                
+            self.assets.render_text(
+                text,
+                "small",
+                40,
+                y_pos + self.assets.small_font_size + 2,
+                LIGHT_GRAY
+            )
+            
+            # Move down for next entry
+            y_pos += (self.assets.small_font_size * 2) + 15
+            
+            # Stop after rendering 3 entries to avoid overflow
+            if i >= 2:
+                break
     
     def _render_debug_overlay(self) -> None:
         """

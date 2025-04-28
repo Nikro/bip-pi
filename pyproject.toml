@@ -11,7 +11,6 @@ packages = [{include = "src"}]
 python = "^3.9"
 pyzmq = "^25.0"       # ZeroMQ Python bindings
 pygame = "^2.1"       # For UI
-pyaudio = "^0.2.13"   # For audio processing
 numpy = "^1.23"       # For numerical processing
 psutil = "^5.9"       # For system monitoring
 pydantic = "^2.0"     # For data validation
@@ -50,5 +49,5 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
 [[tool.mypy.overrides]]
-module = ["pygame.*", "pyaudio.*"]
+module = ["pygame.*"]
 ignore_missing_imports = true
