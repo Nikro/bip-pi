@@ -1,0 +1,12 @@
+2025-09-05 07:26:31,555 - brains - INFO - Responder initialized on port 5557
+2025-09-05 07:26:31,555 - brains - INFO - Subscriber connected to awareness on port 5556
+2025-09-05 07:26:31,557 - brains - INFO - Responder initialized on port 5557
+2025-09-05 07:26:31,557 - brains - INFO - Subscriber connected to awareness on port 5556
+2025-09-05 07:26:31,557 - brains - INFO - Handling trigger: audio
+2025-09-05 07:26:31,557 - brains - INFO - Processed text: Hello...
+2025-09-05 07:26:31,557 - brains - INFO - Trigger audio handled
+2025-09-05 07:26:31,557 - brains - INFO - Handling trigger: audio
+2025-09-05 07:26:31,557 - brains - WARNING - Audio trigger received but no text provided
+2025-09-05 07:26:31,557 - brains - INFO - Trigger audio handled
+2025-09-05 07:26:31,559 - brains - INFO - Responder initialized on port 5557
+2025-09-05 07:26:31,559 - brains - INFO - Subscriber connected to awareness on port 5556
