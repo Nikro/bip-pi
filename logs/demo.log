@@ -1,0 +1,14 @@
+2025-09-05 07:28:29,206 - demo - INFO - Starting Reactive Companion Demo (duration: 15s)
+2025-09-05 07:28:29,206 - demo - INFO - Mock Awareness Node started
+2025-09-05 07:28:29,206 - demo - INFO - Demo Text UI started
+2025-09-05 07:28:34,206 - demo - INFO - Simulating audio trigger: 'Hello, how are you today?'
+2025-09-05 07:28:44,206 - demo - INFO - Stopping demo components...
+2025-09-05 07:28:44,207 - demo - INFO - Mock Awareness Node stopped
+2025-09-05 07:28:44,207 - demo - INFO - Demo Text UI stopped
+2025-09-05 07:29:38,046 - demo - INFO - Starting Reactive Companion Demo (duration: 15s)
+2025-09-05 07:29:38,047 - demo - INFO - Mock Awareness Node started
+2025-09-05 07:29:38,047 - demo - INFO - Demo Text UI started
+2025-09-05 07:29:43,047 - demo - INFO - Simulating audio trigger: 'Hello, how are you today?'
+2025-09-05 07:29:53,047 - demo - INFO - Stopping demo components...
+2025-09-05 07:29:53,047 - demo - INFO - Mock Awareness Node stopped
+2025-09-05 07:29:53,047 - demo - INFO - Demo Text UI stopped

@@ -35,6 +35,7 @@ build-backend = "poetry.core.masonry.api"
 ui = "src.ui.ui:main"
 awareness = "src.awareness.awareness:main"
 brains = "src.brains.brains:main"
+demo = "demo:main"
 
 [tool.black]
 line-length = 88

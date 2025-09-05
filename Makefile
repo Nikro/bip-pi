@@ -1,42 +1,52 @@
-.PHONY: install test lint format update clean run-ui run-awareness run-brains pygame-setup
+.PHONY: install test lint format update clean run-ui run-awareness run-brains pygame-setup demo
 
 # Installation and setup
 install:
-    poetry install
+	poetry install
 
 # PyGame setup specific for the UI component
 pygame-setup:
-    pip install pygame
-    @echo "PyGame installed successfully"
+	pip install pygame
+	@echo "PyGame installed successfully"
 
 # Testing
 test:
-    poetry run pytest
+	poetry run pytest
 
 # Code quality
 lint:
-    poetry run flake8 src tests
-    poetry run mypy src tests
+	poetry run flake8 src tests
+	poetry run mypy src tests
 
 format:
-    poetry run black src tests
-    poetry run isort src tests
+	poetry run black src tests
+	poetry run isort src tests
 
 # Update system
 update: install pygame-setup
-    @echo "System updated successfully"
+	@echo "System updated successfully"
 
 # Running components
 run-ui:
-    poetry run python -m src.ui.ui --config=config/ui_config.json
+	poetry run python -m src.ui.ui --config=config/ui_config.json
 
 run-awareness:
-    poetry run python -m src.awareness.awareness --config=config/awareness_config.json
+	poetry run python -m src.awareness.awareness --config=config/awareness_config.json
 
 run-brains:
-    poetry run python -m src.brains.brains --config=config/brains_config.json
+	poetry run python -m src.brains.brains --config=config/brains_config.json
+
+# Demo
+demo:
+	poetry run python demo.py --duration 30
+
+demo-short:
+	poetry run python demo.py --duration 15
+
+demo-verbose:
+	poetry run python demo.py --duration 30 --verbose
 
 # Cleanup
 clean:
-    rm -rf .pytest_cache .coverage htmlcov .mypy_cache
-    find . -type d -name __pycache__ -exec rm -rf {} +
+	rm -rf .pytest_cache .coverage htmlcov .mypy_cache
+	find . -type d -name __pycache__ -exec rm -rf {} +

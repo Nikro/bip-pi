@@ -4,6 +4,7 @@ Tests for the UI node.
 This module contains unit tests for the UI node and its components.
 """
 
+import json
 import unittest
 from unittest.mock import patch, MagicMock
 import time
@@ -70,7 +71,7 @@ class TestUIState(unittest.TestCase):
             "type": "trigger_event",
             "payload": {
                 "trigger_type": "audio",
-                "data": {"text": "Hello there"}
+                "data": {"transcript": "Hello there"}
             }
         }
         state.update_from_message(trigger_message)

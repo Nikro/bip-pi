@@ -10,3 +10,9 @@
 2025-09-05 07:26:39,005 - INFO - Configured environment for OpenGL with Mali400/Lima GPU
 2025-09-05 07:26:39,005 - ui - INFO - Initializing pygame with OpenGL...
 2025-09-05 07:26:39,005 - INFO - Initializing pygame with OpenGL...
+2025-09-05 07:27:35,646 - ui - INFO - UI logger initialized. Logging to: /home/runner/work/bip-pi/bip-pi/logs/ui.log
+2025-09-05 07:27:35,646 - INFO - UI logger initialized. Logging to: /home/runner/work/bip-pi/bip-pi/logs/ui.log
+2025-09-05 07:30:23,304 - ui - INFO - UI logger initialized. Logging to: /home/runner/work/bip-pi/bip-pi/logs/ui.log
+2025-09-05 07:30:23,304 - INFO - UI logger initialized. Logging to: /home/runner/work/bip-pi/bip-pi/logs/ui.log
+2025-09-05 07:30:30,698 - ui - INFO - UI logger initialized. Logging to: /home/runner/work/bip-pi/bip-pi/logs/ui.log
+2025-09-05 07:30:30,698 - INFO - UI logger initialized. Logging to: /home/runner/work/bip-pi/bip-pi/logs/ui.log

@@ -7,3 +7,10 @@
 2025-09-05 07:26:31,552 - langchain_agent - INFO - STT request received (stub implementation)
 2025-09-05 07:26:31,553 - langchain_agent - INFO - LangChain imported successfully
 2025-09-05 07:26:31,553 - langchain_agent - INFO - TTS request for: Hello...
+2025-09-05 07:30:30,702 - langchain_agent - INFO - LangChain imported successfully
+2025-09-05 07:30:30,706 - langchain_agent - INFO - LangChain imported successfully
+2025-09-05 07:30:30,707 - langchain_agent - INFO - LangChain imported successfully
+2025-09-05 07:30:30,808 - langchain_agent - INFO - LangChain imported successfully
+2025-09-05 07:30:30,808 - langchain_agent - INFO - STT request received (stub implementation)
+2025-09-05 07:30:30,809 - langchain_agent - INFO - LangChain imported successfully
+2025-09-05 07:30:30,809 - langchain_agent - INFO - TTS request for: Hello...
